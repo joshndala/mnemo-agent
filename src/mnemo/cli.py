@@ -91,7 +91,9 @@ def cli() -> None:
       mnemo init --agent job-prep
       mnemo add --fact "Joshua uses React, Node, Supabase" --agent job-prep
       mnemo ls
+      mnemo show --agent job-prep
       mnemo recall "tech stack" --agent job-prep
+      mnemo diff --agent-a job-prep --agent-b job-prep-v2
     """
 
 
@@ -300,7 +302,9 @@ def cmd_ls(agent: str | None, mnemo_dir: Path | None, pretty: bool) -> None:
 
 
 @cli.command("show")
-@click.option("--dump", "-f", "dump_file", required=True, type=click.Path(exists=True, path_type=Path))
+@click.option("--dump", "-f", "dump_file", default=None, type=click.Path(path_type=Path), help="Path to a dump JSON file")
+@AGENT_OPTION
+@DIR_OPTION
 @click.option(
     "--format",
     "fmt",
@@ -308,9 +312,28 @@ def cmd_ls(agent: str | None, mnemo_dir: Path | None, pretty: bool) -> None:
     default="pretty",
     show_default=True,
 )
-def cmd_show(dump_file: Path, fmt: str) -> None:
-    """Display the contents of a dump file."""
-    dump = load_dump(dump_file)
+def cmd_show(dump_file: Path | None, agent: str | None, mnemo_dir: Path | None, fmt: str) -> None:
+    """Display the contents of a dump file.
+
+    \b
+    Pass either a file path or an agent name:
+      mnemo show --agent job-prep
+      mnemo show --dump ~/.mnemo/job-prep/dumps/latest.json
+    """
+    base = _resolve_base(mnemo_dir)
+
+    if dump_file is None and agent is None:
+        raise click.UsageError("Provide --agent <name> or --dump <file>.")
+
+    if dump_file is not None:
+        if not dump_file.exists():
+            raise click.ClickException(f"File not found: {dump_file}")
+        path = dump_file
+    else:
+        require_agent(agent, base)
+        path = latest_dump_path(agent, base)
+
+    dump = load_dump(path)
 
     if fmt == "json":
         click.echo(dump.model_dump_json(indent=2))
@@ -350,20 +373,65 @@ def cmd_show(dump_file: Path, fmt: str) -> None:
 
 
 @cli.command("diff")
-@click.argument("dump_a", type=click.Path(exists=True, path_type=Path))
-@click.argument("dump_b", type=click.Path(exists=True, path_type=Path))
+@click.argument("dump_a", type=click.Path(path_type=Path), required=False, default=None)
+@click.argument("dump_b", type=click.Path(path_type=Path), required=False, default=None)
+@click.option("--agent-a", "agent_a", default=None, help="First agent name (uses its latest dump)")
+@click.option("--agent-b", "agent_b", default=None, help="Second agent name (uses its latest dump)")
+@DIR_OPTION
 @click.option("--html", "out_html", type=click.Path(path_type=Path), default=None, help="Save as HTML mermaid report")
 @click.option("--graph", "out_graph", type=click.Path(path_type=Path), default=None, help="Save as PNG graph (requires mnemo[graph])")
-def cmd_diff(dump_a: Path, dump_b: Path, out_html: Path | None, out_graph: Path | None) -> None:
-    """Show differences between two memory dumps."""
-    da = load_dump(dump_a)
-    db = load_dump(dump_b)
+def cmd_diff(
+    dump_a: Path | None,
+    dump_b: Path | None,
+    agent_a: str | None,
+    agent_b: str | None,
+    mnemo_dir: Path | None,
+    out_html: Path | None,
+    out_graph: Path | None,
+) -> None:
+    """Show differences between two memory dumps.
+
+    \b
+    Pass agent names (compares each agent's latest dump):
+      mnemo diff --agent-a job-prep --agent-b job-prep-v2
+
+    Or pass dump file paths directly:
+      mnemo diff dump1.json dump2.json
+    """
+    base = _resolve_base(mnemo_dir)
+
+    # Resolve paths from agent names if file args not given
+    if dump_a is None and agent_a is None:
+        raise click.UsageError(
+            "Provide two file paths (mnemo diff A.json B.json) "
+            "or use --agent-a / --agent-b."
+        )
+
+    if dump_a is None:
+        require_agent(agent_a, base)
+        path_a = latest_dump_path(agent_a, base)
+    else:
+        path_a = dump_a
+
+    if dump_b is None:
+        if agent_b is None:
+            raise click.UsageError("Provide a second file or --agent-b <name>.")
+        require_agent(agent_b, base)
+        path_b = latest_dump_path(agent_b, base)
+    else:
+        path_b = dump_b
+
+    da = load_dump(path_a)
+    db = load_dump(path_b)
     added, removed, common = diff_dumps(da, db)
+
+    label_a = agent_a or path_a.name
+    label_b = agent_b or path_b.name
 
     console.print(
         Panel.fit(
-            f"[dim]A:[/] {dump_a.name}  ({len(da.facts)} facts)\n"
-            f"[dim]B:[/] {dump_b.name}  ({len(db.facts)} facts)\n\n"
+            f"[dim]A:[/] {label_a}  ({len(da.facts)} facts)\n"
+            f"[dim]B:[/] {label_b}  ({len(db.facts)} facts)\n\n"
             f"[green]+{len(added)} added[/]   [red]-{len(removed)} removed[/]   [dim]{len(common)} unchanged[/]",
             title="🔍 mnemo diff",
             border_style="magenta",

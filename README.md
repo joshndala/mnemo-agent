@@ -36,8 +36,8 @@ mnemo init --agent job-prep
 mnemo add --fact "Joshua uses React, Node, Supabase, Vercel" --agent job-prep
 mnemo add --fact "Joshua is based in Toronto" --agent job-prep --confidence 1.0
 
-# View stored memories
-mnemo show --dump ~/.mnemo/job-prep/dumps/latest.json
+# View stored memories (by agent name or by file path)
+mnemo show --agent job-prep
 
 # Recall using natural language
 mnemo recall "tech stack" --agent job-prep
@@ -52,7 +52,8 @@ mnemo dump --agent job-prep
 # Load a sample dump
 mnemo load --file tests/fixtures/job_prep_sample.json --agent job-prep
 
-# Compare two dumps
+# Compare two agents (or two dump files)
+mnemo diff --agent-a job-prep --agent-b job-prep-v2
 mnemo diff dump1.json dump2.json --html diff_report.html
 
 # Start the MCP server (for Ollama / Claude Code agents)
@@ -70,8 +71,8 @@ mnemo serve --agent job-prep --port 8080
 | `mnemo dump --agent <name> [--source mem0\|letta]` | Dump memories to JSON |
 | `mnemo load --file dump.json --agent <name>` | Load dump into local/Mem0/Letta |
 | `mnemo ls [--agent all]` | List agents and fact counts |
-| `mnemo show --dump dump.json [--format json]` | Display dump contents |
-| `mnemo diff a.json b.json [--html] [--graph]` | Diff two dumps |
+| `mnemo show --agent <name>` | Display agent's latest memories (or `--dump <file>`) |
+| `mnemo diff --agent-a <a> --agent-b <b>` | Diff two agents (or `diff a.json b.json`) |
 | `mnemo recall "query"` | TF-IDF search across all agents |
 | `mnemo search "query" [--limit 10]` | Search with higher limit |
 | `mnemo migrate --dump f.json --target mem0 --agent name` | Migrate between providers |
