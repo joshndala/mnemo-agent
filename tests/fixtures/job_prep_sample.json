@@ -1,0 +1,108 @@
+{
+  "agent": "job-prep",
+  "dump_ts": "2026-03-21T23:00:00+00:00",
+  "source": "manual",
+  "version": "1",
+  "facts": [
+    {
+      "id": "a1b2c3d4-0000-0000-0000-000000000001",
+      "entity": "Joshua",
+      "attribute": "tech_stack",
+      "value": "React, Node.js, Supabase, Vercel",
+      "source": "manual",
+      "timestamp": "2026-03-21T20:00:00+00:00",
+      "confidence": 0.99,
+      "metadata": { "context": "primary stack" }
+    },
+    {
+      "id": "a1b2c3d4-0000-0000-0000-000000000002",
+      "entity": "Joshua",
+      "attribute": "location",
+      "value": "Toronto, Canada",
+      "source": "manual",
+      "timestamp": "2026-03-21T20:00:00+00:00",
+      "confidence": 1.0,
+      "metadata": {}
+    },
+    {
+      "id": "a1b2c3d4-0000-0000-0000-000000000003",
+      "entity": "Joshua",
+      "attribute": "role",
+      "value": "Full-stack developer",
+      "source": "chat",
+      "timestamp": "2026-03-21T20:01:00+00:00",
+      "confidence": 0.98,
+      "metadata": {}
+    },
+    {
+      "id": "a1b2c3d4-0000-0000-0000-000000000004",
+      "entity": "Joshua",
+      "attribute": "mcp_server",
+      "value": "Owns and runs a local Ollama MCP server",
+      "source": "tool",
+      "timestamp": "2026-03-21T20:02:00+00:00",
+      "confidence": 0.95,
+      "metadata": { "server": "ollama" }
+    },
+    {
+      "id": "a1b2c3d4-0000-0000-0000-000000000005",
+      "entity": "Joshua",
+      "attribute": "database_preference",
+      "value": "Supabase (PostgreSQL) for all production databases",
+      "source": "chat",
+      "timestamp": "2026-03-21T20:03:00+00:00",
+      "confidence": 0.97,
+      "metadata": {}
+    },
+    {
+      "id": "a1b2c3d4-0000-0000-0000-000000000006",
+      "entity": "job-prep",
+      "attribute": "interview_tip",
+      "value": "Lead with behavioural examples from Supabase migration projects",
+      "source": "manual",
+      "timestamp": "2026-03-21T20:04:00+00:00",
+      "confidence": 0.85,
+      "metadata": { "category": "strategy" }
+    },
+    {
+      "id": "a1b2c3d4-0000-0000-0000-000000000007",
+      "entity": "job-prep",
+      "attribute": "target_role",
+      "value": "Senior Full-Stack Engineer at a product-led SaaS",
+      "source": "manual",
+      "timestamp": "2026-03-21T20:05:00+00:00",
+      "confidence": 0.9,
+      "metadata": {}
+    },
+    {
+      "id": "a1b2c3d4-0000-0000-0000-000000000008",
+      "entity": "Joshua",
+      "attribute": "strength",
+      "value": "Shipping fast with high-quality DX using Next.js and Vercel",
+      "source": "chat",
+      "timestamp": "2026-03-21T20:06:00+00:00",
+      "confidence": 0.88,
+      "metadata": {}
+    },
+    {
+      "id": "a1b2c3d4-0000-0000-0000-000000000009",
+      "entity": "Joshua",
+      "attribute": "weakness_to_reframe",
+      "value": "Sometimes over-engineers solutions; now prioritises iterative MVP delivery",
+      "source": "manual",
+      "timestamp": "2026-03-21T20:07:00+00:00",
+      "confidence": 0.75,
+      "metadata": { "for": "interview use" }
+    },
+    {
+      "id": "a1b2c3d4-0000-0000-0000-000000000010",
+      "entity": "mnemo",
+      "attribute": "purpose",
+      "value": "CLI tool for local-first agent memory management across Mem0, Letta, and more",
+      "source": "manual",
+      "timestamp": "2026-03-21T23:00:00+00:00",
+      "confidence": 1.0,
+      "metadata": { "project": "mnemo-agent" }
+    }
+  ]
+}

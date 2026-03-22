@@ -1,0 +1,26 @@
+# mnemo config for agent: job-prep
+agent: job-prep
+
+# Default source when dumping (local | mem0 | letta)
+default_source: local
+
+# Default target when loading (local | mem0 | letta)
+default_target: local
+
+# ── Mem0 settings ──────────────────────────────────────────────────────────
+# Get your API key at https://app.mem0.ai
+mem0_api_key: null          # or set MNEMO_MEM0_API_KEY env var
+mem0_user_id: joshua        # maps to your Mem0 user
+
+# ── Letta settings ──────────────────────────────────────────────────────────
+# Run Letta locally: letta server
+letta_base_url: http://localhost:8283
+letta_agent_id: null        # Get this after creating a Letta agent
+
+# ── Metadata ────────────────────────────────────────────────────────────────
+tags:
+  - job-prep
+  - interview
+notes: >
+  Memory store for the job-prep agent. Tracks Joshua's tech preferences,
+  interview answers, and Supabase/React/Node context.

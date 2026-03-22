@@ -1,0 +1,15 @@
+click>=8.1
+pydantic>=2.6
+rich>=13.7
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pyyaml>=6.0
+python-dateutil>=2.9
+
+# Optional — install as needed:
+# mem0ai>=0.0.20        → mnemo[mem0]
+# letta-client>=0.1     → mnemo[letta]
+# pyarrow>=16.0         → mnemo[parquet]
+# pandas>=2.2           → mnemo[parquet]
+# networkx>=3.3         → mnemo[graph]
+# matplotlib>=3.9       → mnemo[graph]
