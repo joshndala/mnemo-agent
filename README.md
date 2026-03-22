@@ -8,7 +8,7 @@ Inspired by Mnemosyne (Greek goddess of memory), **mnemo** is a portable CLI for
 
 ---
 
-## ✨ Features
+## Features
 
 - **11 CLI commands** with rich `--help` and tab-completion
 - **Normalized schema** — facts with `{entity, attribute, value, source, timestamp, confidence}`
@@ -21,7 +21,7 @@ Inspired by Mnemosyne (Greek goddess of memory), **mnemo** is a portable CLI for
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Install
@@ -79,7 +79,7 @@ mnemo serve --agent job-prep --port 8080
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 mnemo-agent/
@@ -104,7 +104,7 @@ mnemo-agent/
 
 ---
 
-## 📦 Memory Schema
+## Memory Schema
 
 ```json
 {
@@ -172,7 +172,7 @@ notes: Memory store for interview prep agent
 
 ---
 
-## 🔑 Environment Variables
+## Environment Variables
 
 | Variable | Description |
 |---|---|
@@ -181,7 +181,7 @@ notes: Memory store for interview prep agent
 
 ---
 
-## 🧪 Tests
+## Tests
 
 ```bash
 pip install -e ".[dev]"
@@ -190,7 +190,7 @@ pytest tests/ -v
 
 ---
 
-## 🗺  Roadmap
+## Roadmap
 
 - [ ] Vector embeddings for semantic search (v2)
 - [ ] Parquet export for analytics
@@ -200,7 +200,7 @@ pytest tests/ -v
 
 ---
 
-## Joshua's Use Case: `job-prep` Agent
+## Example Use Case: `job-prep` Agent
 
 ```bash
 # Bootstrap your interview prep memory
