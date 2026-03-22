@@ -127,6 +127,45 @@ mnemo-agent/
 }
 ```
 
+### Example: Project Memory for `advisor-prep`
+
+```json
+{
+  "agent": "advisor-prep",
+  "facts": [
+    {
+      "id": "uuid-1",
+      "entity": "advisor-prep-agent",
+      "attribute": "project_summary",
+      "value": "CLI + agent that helps students prep for advisor meetings using UBC context.",
+      "source": "manual",
+      "timestamp": "2026-03-22T01:00Z",
+      "confidence": 0.9,
+      "metadata": { "tags": ["summary", "high-level"] }
+    },
+    {
+      "id": "uuid-2",
+      "entity": "advisor-prep-agent",
+      "attribute": "decision",
+      "value": "Chose Supabase over Firebase for auth due to better Postgres integration.",
+      "source": "manual",
+      "timestamp": "2026-03-22T01:05Z",
+      "confidence": 0.95,
+      "metadata": { "tags": ["decision", "auth"], "ticket": "ADR-001" }
+    },
+    {
+      "id": "uuid-3",
+      "entity": "advisor-prep-agent",
+      "attribute": "stack",
+      "value": "Next.js, React, Node, Supabase, Vercel.",
+      "source": "manual",
+      "timestamp": "2026-03-22T01:10Z",
+      "confidence": 1.0,
+      "metadata": { "tags": ["stack"] }
+    }
+  ]
+}
+
 ---
 
 ## 🔌 MCP Server (for Ollama / Claude Code)
