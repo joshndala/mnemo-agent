@@ -90,5 +90,6 @@ class MnemoConfig(BaseModel):
     letta_agent_id: str | None = None
     tags: list[str] = Field(default_factory=list)
     notes: str = ""
+    remotes: dict[str, str] = Field(default_factory=dict, description="Named remote URLs")
 
     model_config = {"extra": "allow"}

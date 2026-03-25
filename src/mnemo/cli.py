@@ -24,9 +24,12 @@ from mnemo.storage import (
     latest_dump_path,
     list_agents,
     list_dump_files,
+    load_credentials,
     load_dump,
     load_config,
     require_agent,
+    save_config,
+    save_credentials,
     save_dump,
 )
 
@@ -906,6 +909,199 @@ def cmd_serve(agent: str, port: int, read_only: bool, mnemo_dir: Path | None) ->
     )
 
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+
+
+# ─── mnemo remote ─────────────────────────────────────────────────────────────
+
+
+@cli.group("remote")
+def cmd_remote() -> None:
+    """Manage named remote backends for push/pull sync.
+
+    \b
+    Supported URL schemes:
+      file:///path/to/dir       Local filesystem (NAS, external drive, testing)
+      s3://bucket/prefix        AWS S3
+      r2://bucket/prefix        Cloudflare R2
+
+    \b
+    Examples:
+      mnemo remote add origin s3://my-bucket/mnemo --agent job-prep
+      mnemo remote add backup file:///Volumes/drive/mnemo --agent job-prep
+      mnemo remote list --agent job-prep
+      mnemo remote remove backup --agent job-prep
+    """
+
+
+@cmd_remote.command("add")
+@click.argument("name")
+@click.argument("url")
+@AGENT_OPTION
+@DIR_OPTION
+@click.option("--no-creds", is_flag=True, help="Skip credential prompting (use boto3 chain: env vars, ~/.aws/credentials)")
+def cmd_remote_add(name: str, url: str, agent: str | None, mnemo_dir: Path | None, no_creds: bool) -> None:
+    """Add a named remote URL for an agent."""
+    from urllib.parse import urlparse
+    from mnemo.remotes import validate_url
+    try:
+        validate_url(url)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+    base = _resolve_base(mnemo_dir)
+    ag = _resolve_agent(agent)
+    require_agent(ag, base)
+
+    # Prompt for credentials if this is an S3/R2 remote
+    scheme = urlparse(url).scheme.lower()
+    if scheme in ("s3", "r2") and not no_creds:
+        existing = load_credentials(url)
+        if existing:
+            console.print(f"[dim]Credentials already stored for {url} — reusing.[/]")
+        else:
+            console.print(f"\n[cyan]{scheme.upper()} credentials[/] [dim](stored in ~/.mnemo/credentials, chmod 600)[/]")
+            console.print("[dim]Leave blank to use the boto3 chain instead (env vars, ~/.aws/credentials).[/]\n")
+            access_key = click.prompt("  Access Key ID", default="", show_default=False)
+            if access_key:
+                secret_key = click.prompt("  Secret Access Key", hide_input=True)
+                region = click.prompt("  Region", default="us-east-1")
+                creds: dict = {
+                    "aws_access_key_id": access_key,
+                    "aws_secret_access_key": secret_key,
+                    "region": region,
+                }
+                if scheme == "r2":
+                    account_id = click.prompt("  Cloudflare Account ID")
+                    creds["r2_account_id"] = account_id
+                save_credentials(url, creds)
+                console.print("[green]✓[/] Credentials saved\n")
+            else:
+                console.print("[dim]Skipped — will use boto3 credential chain.\n[/]")
+
+    cfg = load_config(ag, base)
+    cfg.remotes[name] = url
+    save_config(cfg, base)
+    console.print(f"[green]✓[/] Remote [bold]{name}[/] → {url}")
+
+
+@cmd_remote.command("list")
+@AGENT_OPTION
+@DIR_OPTION
+def cmd_remote_list(agent: str | None, mnemo_dir: Path | None) -> None:
+    """List configured remotes for an agent."""
+    base = _resolve_base(mnemo_dir)
+    ag = _resolve_agent(agent)
+    require_agent(ag, base)
+
+    cfg = load_config(ag, base)
+    if not cfg.remotes:
+        console.print("[yellow]No remotes configured.[/] Use: mnemo remote add <name> <url> --agent <name>")
+        return
+
+    for rname, rurl in cfg.remotes.items():
+        console.print(f"  [bold]{rname}[/]  {rurl}")
+
+
+@cmd_remote.command("remove")
+@click.argument("name")
+@AGENT_OPTION
+@DIR_OPTION
+def cmd_remote_remove(name: str, agent: str | None, mnemo_dir: Path | None) -> None:
+    """Remove a named remote."""
+    base = _resolve_base(mnemo_dir)
+    ag = _resolve_agent(agent)
+    require_agent(ag, base)
+
+    cfg = load_config(ag, base)
+    if name not in cfg.remotes:
+        raise click.ClickException(f"No remote named '{name}'.")
+    del cfg.remotes[name]
+    save_config(cfg, base)
+    console.print(f"[green]✓[/] Removed remote [bold]{name}[/]")
+
+
+# ─── mnemo push ───────────────────────────────────────────────────────────────
+
+
+@cli.command("push")
+@AGENT_OPTION
+@DIR_OPTION
+@click.option("--remote", "-r", "remote_name", default="origin", show_default=True, help="Remote name to push to")
+def cmd_push(agent: str | None, mnemo_dir: Path | None, remote_name: str) -> None:
+    """Push local agent memory to a remote."""
+    from mnemo.remotes import RemoteBackend
+    base = _resolve_base(mnemo_dir)
+    ag = _resolve_agent(agent)
+    require_agent(ag, base)
+
+    cfg = load_config(ag, base)
+    if remote_name not in cfg.remotes:
+        raise click.ClickException(
+            f"No remote named '{remote_name}'. Run: mnemo remote add {remote_name} <url> --agent {ag}"
+        )
+
+    url = cfg.remotes[remote_name]
+    backend = RemoteBackend.from_url(url, credentials=load_credentials(url))
+    dump = load_dump(latest_dump_path(ag, base))
+
+    with console.status(f"[cyan]Pushing to [bold]{remote_name}[/]…"):
+        backend.upload(dump, ag)
+
+    console.print(
+        f"[green]✓[/] Pushed [bold]{len(dump.facts)}[/] facts → [bold]{remote_name}[/] ({url})"
+    )
+
+
+# ─── mnemo pull ───────────────────────────────────────────────────────────────
+
+
+@cli.command("pull")
+@AGENT_OPTION
+@DIR_OPTION
+@click.option("--remote", "-r", "remote_name", default="origin", show_default=True, help="Remote name to pull from")
+@click.option("--dry-run", is_flag=True, help="Preview changes without writing")
+def cmd_pull(agent: str | None, mnemo_dir: Path | None, remote_name: str, dry_run: bool) -> None:
+    """Pull remote agent memory and merge into local."""
+    from mnemo.remotes import RemoteBackend, merge_dumps
+    base = _resolve_base(mnemo_dir)
+    ag = _resolve_agent(agent)
+    require_agent(ag, base)
+
+    cfg = load_config(ag, base)
+    if remote_name not in cfg.remotes:
+        raise click.ClickException(
+            f"No remote named '{remote_name}'. Run: mnemo remote add {remote_name} <url> --agent {ag}"
+        )
+
+    url = cfg.remotes[remote_name]
+    backend = RemoteBackend.from_url(url, credentials=load_credentials(url))
+
+    with console.status(f"[cyan]Pulling from [bold]{remote_name}[/]…"):
+        remote_dump = backend.download(ag)
+
+    if remote_dump is None:
+        console.print(f"[yellow]Nothing found at remote[/] [bold]{remote_name}[/] for agent [bold]{ag}[/]")
+        return
+
+    local_path = latest_dump_path(ag, base)
+    try:
+        local_dump = load_dump(local_path)
+    except FileNotFoundError:
+        local_dump = AgentDump(agent=ag)
+
+    merged, added, updated = merge_dumps(local_dump, remote_dump)
+
+    console.print(
+        f"[cyan]Merge preview:[/] [green]+{added} new[/]  [yellow]~{updated} updated[/]  "
+        f"[dim]{len(local_dump.facts)} local · {len(remote_dump.facts)} remote → {len(merged.facts)} merged[/]"
+    )
+
+    if dry_run:
+        console.print("[yellow]--dry-run:[/] no changes written.")
+        return
+
+    save_dump(merged, local_path)
+    console.print(f"[green]✓[/] Merged into [bold]{ag}[/]")
 
 
 if __name__ == "__main__":

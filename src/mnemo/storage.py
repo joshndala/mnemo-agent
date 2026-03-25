@@ -11,6 +11,33 @@ import yaml
 from mnemo.models import AgentDump, MnemoConfig
 
 DEFAULT_MNEMO_DIR = Path.home() / ".mnemo"
+CREDENTIALS_PATH = DEFAULT_MNEMO_DIR / "credentials"
+
+
+# ─── Credentials I/O ─────────────────────────────────────────────────────────
+
+
+def load_credentials(
+    url: str, creds_path: Path = CREDENTIALS_PATH
+) -> dict | None:
+    """Return stored credentials for a remote URL, or None if not found."""
+    if not creds_path.exists():
+        return None
+    data = yaml.safe_load(creds_path.read_text()) or {}
+    return data.get(url) or None
+
+
+def save_credentials(
+    url: str, creds: dict, creds_path: Path = CREDENTIALS_PATH
+) -> None:
+    """Save credentials for a remote URL and restrict file permissions to 600."""
+    data: dict = {}
+    if creds_path.exists():
+        data = yaml.safe_load(creds_path.read_text()) or {}
+    data[url] = creds
+    creds_path.parent.mkdir(parents=True, exist_ok=True)
+    creds_path.write_text(yaml.dump(data, default_flow_style=False))
+    creds_path.chmod(0o600)
 
 
 # ─── Directory helpers ────────────────────────────────────────────────────────

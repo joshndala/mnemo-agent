@@ -10,14 +10,15 @@ Inspired by Mnemosyne (Greek goddess of memory), **mnemo** is a portable CLI for
 
 ## Features
 
-- **11 CLI commands** with rich `--help` and tab-completion
-- **Normalized schema** — facts with `{entity, attribute, value, source, timestamp, confidence}`
+- **15 CLI commands** with rich `--help` and tab-completion
+- **Normalized schema** — facts with `{entity, attribute, value, source, timestamp, confidence, metadata.tags}`
 - **Multi-provider** — local JSON, Mem0, Letta (stubs → real APIs with optional deps)
-- **TF-IDF search** — `mnemo recall "query"` with zero external ML deps
+- **TF-IDF search** — `mnemo recall "query"` with zero external ML deps, filterable by `--tag`
 - **Rich tables** — confidence color-coded (🟢 ≥0.8, 🟡 ≥0.5, 🔴 <0.5)
 - **HTML + graph diffs** — visual diff between dump snapshots
 - **MCP server** — FastAPI `/mcp/list_tools` + `/mcp/call_tool` for Ollama/Claude Code agents
-- **Safe writes** — `--dry-run` and `--approval` flags
+- **Push/pull sync** — S3, Cloudflare R2, or local filesystem remote; timestamp-based merge
+- **Safe writes** — `--dry-run` on load, pull, and migrate
 
 ---
 
@@ -25,8 +26,9 @@ Inspired by Mnemosyne (Greek goddess of memory), **mnemo** is a portable CLI for
 
 ```bash
 # Install
-pip install mnemo-agent            # core (local only)
-pip install "mnemo-agent[all]"     # everything (mem0 + letta + parquet + graph)
+pip install mnemo-agent              # core (local only)
+pip install "mnemo-agent[s3]"       # + S3/R2 push-pull sync
+pip install "mnemo-agent[all]"      # everything (mem0 + letta + parquet + graph + s3)
 
 # Initialize Joshua's job-prep agent
 mnemo init --agent job-prep
@@ -64,6 +66,11 @@ mnemo diff dump1.json dump2.json --html diff_report.html
 
 # Start the MCP server (for Ollama / Claude Code agents)
 mnemo serve --agent job-prep --port 8080
+
+# Sync to S3 (prompts for credentials on first add)
+mnemo remote add origin s3://my-bucket/mnemo --agent job-prep
+mnemo push --agent job-prep
+mnemo pull --agent job-prep   # merges remote facts into local
 ```
 
 ---
@@ -85,6 +92,11 @@ mnemo serve --agent job-prep --port 8080
 | `mnemo edit <fact-id> --agent <name>` | Edit value/attribute/confidence of an existing fact |
 | `mnemo migrate --dump f.json --target mem0 --agent name` | Migrate between providers |
 | `mnemo serve --agent <name> [--port 8080] [--read-only]` | MCP FastAPI server |
+| `mnemo remote add <name> <url> --agent <name>` | Add a named remote (s3://, r2://, file://) |
+| `mnemo remote list --agent <name>` | List configured remotes |
+| `mnemo remote remove <name> --agent <name>` | Remove a remote |
+| `mnemo push [--remote origin] --agent <name>` | Push local memory to remote |
+| `mnemo pull [--remote origin] --agent <name>` | Pull and merge remote memory into local |
 
 ---
 
@@ -96,14 +108,16 @@ mnemo-agent/
 │   ├── __init__.py          # version
 │   ├── cli.py               # Click CLI (all commands)
 │   ├── models.py            # Pydantic: Fact, AgentDump, MnemoConfig
-│   ├── storage.py           # Local file I/O (JSON, YAML, Parquet)
+│   ├── storage.py           # Local file I/O (JSON, YAML, credentials)
 │   ├── search.py            # TF-IDF search + diff engine
+│   ├── remotes.py           # Push/pull backends: FileBackend, S3Backend
 │   ├── server.py            # FastAPI MCP server
 │   └── adapters/
 │       ├── mem0_adapter.py  # Mem0 API → normalized facts
 │       └── letta_adapter.py # Letta API → normalized facts
 ├── tests/
-│   ├── test_cli.py          # pytest suite
+│   ├── test_cli.py          # CLI command tests
+│   ├── test_remote.py       # Remote backends, merge, push/pull tests
 │   └── fixtures/
 │       └── job_prep_sample.json
 ├── config.yaml              # Sample agent config
@@ -217,7 +231,11 @@ letta_base_url: http://localhost:8283
 letta_agent_id: null        # from your Letta agent
 tags: [job-prep, interview]
 notes: Memory store for interview prep agent
+remotes:
+  origin: s3://my-bucket/mnemo
 ```
+
+Remote credentials (S3/R2 access keys) are stored separately in `~/.mnemo/credentials` with `chmod 600`. They are populated automatically when you run `mnemo remote add` — you will be prompted for them interactively. Pass `--no-creds` to skip prompting and rely on the standard boto3 credential chain (`AWS_ACCESS_KEY_ID` env var, `~/.aws/credentials`, IAM role).
 
 ---
 
@@ -227,6 +245,8 @@ notes: Memory store for interview prep agent
 |---|---|
 | `MNEMO_AGENT` | Default agent name (skips `--agent` flag) |
 | `MNEMO_DIR` | Override base directory (default: `~/.mnemo`) |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | S3 credentials (alternative to prompting) |
+| `R2_ACCOUNT_ID` | Cloudflare R2 account ID (alternative to prompting) |
 
 ---
 
@@ -241,6 +261,7 @@ pytest tests/ -v
 
 ## Roadmap
 
+- [x] Push/pull sync to S3, R2, and local filesystem remotes
 - [ ] Vector embeddings for semantic search (v2)
 - [ ] Parquet export for analytics
 - [ ] `mnemo audit` — fact provenance trace
