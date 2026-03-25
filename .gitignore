@@ -30,3 +30,7 @@ htmlcov/
 # Generated outputs
 *.png
 diff_*.html
+
+# Claude
+.claude/
+CLAUDE.md

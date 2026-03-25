@@ -24,7 +24,7 @@ from mnemo.storage import (
 class MCPTool(BaseModel):
     name: str
     description: str
-    input_schema: dict[str, Any]
+    inputSchema: dict[str, Any]
 
 
 class MCPToolCallRequest(BaseModel):
@@ -58,7 +58,7 @@ def create_app(agent: str, base: Path, read_only: bool = False) -> FastAPI:
         MCPTool(
             name="search_memory",
             description="Search agent memory using TF-IDF keyword matching.",
-            input_schema={
+            inputSchema={
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Search query"},
@@ -70,7 +70,7 @@ def create_app(agent: str, base: Path, read_only: bool = False) -> FastAPI:
         MCPTool(
             name="list_facts",
             description="Return all facts stored for this agent.",
-            input_schema={
+            inputSchema={
                 "type": "object",
                 "properties": {
                     "entity": {
@@ -87,7 +87,7 @@ def create_app(agent: str, base: Path, read_only: bool = False) -> FastAPI:
         MCPTool(
             name="upsert_fact",
             description="Add or update a fact in agent memory.",
-            input_schema={
+            inputSchema={
                 "type": "object",
                 "properties": {
                     "entity": {"type": "string"},
@@ -106,7 +106,7 @@ def create_app(agent: str, base: Path, read_only: bool = False) -> FastAPI:
         MCPTool(
             name="get_agent_info",
             description="Return metadata about the agent memory store.",
-            input_schema={"type": "object", "properties": {}},
+            inputSchema={"type": "object", "properties": {}},
         ),
     ]
 
@@ -218,7 +218,9 @@ def _dispatch(
             confidence=float(args.get("confidence", 1.0)),
             source=args.get("source", "tool"),  # type: ignore[arg-type]
         )
+        from datetime import datetime, timezone
         dump.facts.append(fact)
+        dump.dump_ts = datetime.now(timezone.utc)
         save_dump(dump, latest_dump_path(agent, base))
         return f"Fact saved: {fact.entity} · {fact.attribute}: {fact.value}"
 

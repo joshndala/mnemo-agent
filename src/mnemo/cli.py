@@ -308,7 +308,7 @@ def cmd_ls(agent: str | None, mnemo_dir: Path | None, pretty: bool) -> None:
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["pretty", "json"]),
+    type=click.Choice(["pretty", "json", "plain"]),
     default="pretty",
     show_default=True,
 )
@@ -337,6 +337,16 @@ def cmd_show(dump_file: Path | None, agent: str | None, mnemo_dir: Path | None, 
 
     if fmt == "json":
         click.echo(dump.model_dump_json(indent=2))
+        return
+
+    if fmt == "plain":
+        for fact in dump.facts:
+            tags = fact.metadata.get("tags", [])
+            tag_str = f"  [{', '.join(tags)}]" if tags else ""
+            console.print(
+                f"[dim]{fact.id[:8]}[/]  [bold]{fact.entity}[/].[cyan]{fact.attribute}[/]: "
+                f"{fact.value}  [dim](conf={fact.confidence:.2f}){tag_str}[/]"
+            )
         return
 
     # Pretty table
@@ -554,7 +564,8 @@ def _write_diff_graph(da: AgentDump, db: AgentDump, added: list, removed: list, 
 @AGENT_OPTION
 @DIR_OPTION
 @click.option("--limit", "-n", default=5, show_default=True, help="Max results")
-def cmd_recall(query: str, agent: str | None, mnemo_dir: Path | None, limit: int) -> None:
+@click.option("--tag", "-t", "filter_tags", multiple=True, help="Filter results to facts with this tag (repeatable)")
+def cmd_recall(query: str, agent: str | None, mnemo_dir: Path | None, limit: int, filter_tags: tuple[str, ...]) -> None:
     """Recall memories by natural-language query (TF-IDF)."""
     base = _resolve_base(mnemo_dir)
     target_agents = [agent] if agent else list_agents(base)
@@ -572,6 +583,13 @@ def cmd_recall(query: str, agent: str | None, mnemo_dir: Path | None, limit: int
             pass
 
     results = search_dumps(dumps, query, limit=limit)
+
+    if filter_tags:
+        filter_set = {t.lower() for t in filter_tags}
+        results = [
+            r for r in results
+            if filter_set.intersection({t.lower() for t in r.fact.metadata.get("tags", [])})
+        ]
 
     if not results:
         console.print(f"[yellow]No matches found for:[/] {query}")
@@ -612,10 +630,15 @@ def cmd_recall(query: str, agent: str | None, mnemo_dir: Path | None, limit: int
 @AGENT_OPTION
 @DIR_OPTION
 @click.option("--limit", "-n", default=10, show_default=True)
-def cmd_search(query: str, agent: str | None, mnemo_dir: Path | None, limit: int) -> None:
-    """Search memories (alias for recall with higher default limit)."""
+@click.option("--tag", "-t", "filter_tags", multiple=True, help="Filter results to facts with this tag (repeatable)")
+def cmd_search(query: str, agent: str | None, mnemo_dir: Path | None, limit: int, filter_tags: tuple[str, ...]) -> None:
+    """Search memories (alias for recall with a higher default limit of 10).
+
+    Both recall and search use TF-IDF keyword matching — recall defaults to 5 results,
+    search defaults to 10. Use whichever name feels natural.
+    """
     ctx = click.get_current_context()
-    ctx.invoke(cmd_recall, query=query, agent=agent, mnemo_dir=mnemo_dir, limit=limit)
+    ctx.invoke(cmd_recall, query=query, agent=agent, mnemo_dir=mnemo_dir, limit=limit, filter_tags=filter_tags)
 
 
 # ─── mnemo migrate ────────────────────────────────────────────────────────────
@@ -681,6 +704,122 @@ def cmd_migrate(
         console.print(f"[green]✓[/] Migrated {pushed} facts to Letta")
 
 
+# ─── mnemo retract ────────────────────────────────────────────────────────────
+
+
+@cli.command("retract")
+@click.argument("fact_id")
+@AGENT_OPTION
+@DIR_OPTION
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+def cmd_retract(fact_id: str, agent: str | None, mnemo_dir: Path | None, yes: bool) -> None:
+    """Remove a fact from agent memory by ID or ID prefix.
+
+    \b
+    Use 'mnemo show --format plain' to see fact IDs.
+    The first 8 characters of the ID are shown in the plain output.
+
+    \b
+    Examples:
+      mnemo retract a1b2c3d4 --agent job-prep
+      mnemo retract a1b2c3d4e5f6 --agent job-prep --yes
+    """
+    base = _resolve_base(mnemo_dir)
+    ag = _resolve_agent(agent)
+    require_agent(ag, base)
+
+    latest = latest_dump_path(ag, base)
+    dump = load_dump(latest)
+
+    matches = [f for f in dump.facts if f.id == fact_id or f.id.startswith(fact_id)]
+
+    if not matches:
+        raise click.ClickException(f"No fact found with ID (or prefix): {fact_id}")
+    if len(matches) > 1:
+        raise click.ClickException(
+            f"Ambiguous prefix '{fact_id}' matches {len(matches)} facts. Use a longer prefix."
+        )
+
+    fact = matches[0]
+
+    if not yes:
+        console.print(
+            f"[yellow]Retracting:[/] [dim]{fact.id[:8]}[/]  "
+            f"[bold]{fact.entity}[/].[cyan]{fact.attribute}[/]: {fact.value}"
+        )
+        if not click.confirm("Proceed?"):
+            console.print("[dim]Aborted.[/]")
+            return
+
+    dump.facts = [f for f in dump.facts if f.id != fact.id]
+    save_dump(dump, latest)
+    console.print(f"[green]✓[/] Retracted fact [dim]{fact.id[:8]}[/] from [bold]{ag}[/]")
+
+
+# ─── mnemo edit ───────────────────────────────────────────────────────────────
+
+
+@cli.command("edit")
+@click.argument("fact_id")
+@AGENT_OPTION
+@DIR_OPTION
+@click.option("--value", "new_value", default=None, help="New fact value")
+@click.option("--attribute", "new_attribute", default=None, help="New attribute/category")
+@click.option("--confidence", "new_confidence", default=None, type=float, help="New confidence score")
+def cmd_edit(
+    fact_id: str,
+    agent: str | None,
+    mnemo_dir: Path | None,
+    new_value: str | None,
+    new_attribute: str | None,
+    new_confidence: float | None,
+) -> None:
+    """Edit an existing fact by ID or ID prefix.
+
+    \b
+    Use 'mnemo show --format plain' to see fact IDs.
+
+    \b
+    Examples:
+      mnemo edit a1b2c3d4 --value "Updated wording" --agent job-prep
+      mnemo edit a1b2c3d4 --attribute decision --confidence 0.95 --agent job-prep
+    """
+    base = _resolve_base(mnemo_dir)
+    ag = _resolve_agent(agent)
+    require_agent(ag, base)
+
+    if new_value is None and new_attribute is None and new_confidence is None:
+        raise click.UsageError("Provide at least one of --value, --attribute, or --confidence.")
+
+    latest = latest_dump_path(ag, base)
+    dump = load_dump(latest)
+
+    matches = [f for f in dump.facts if f.id == fact_id or f.id.startswith(fact_id)]
+
+    if not matches:
+        raise click.ClickException(f"No fact found with ID (or prefix): {fact_id}")
+    if len(matches) > 1:
+        raise click.ClickException(
+            f"Ambiguous prefix '{fact_id}' matches {len(matches)} facts. Use a longer prefix."
+        )
+
+    fact = matches[0]
+    if new_value is not None:
+        fact.value = new_value
+    if new_attribute is not None:
+        fact.attribute = new_attribute
+    if new_confidence is not None:
+        fact.confidence = new_confidence
+
+    save_dump(dump, latest)
+    color = _conf_color(fact.confidence)
+    console.print(
+        f"[green]✓[/] Updated fact [dim]{fact.id[:8]}[/]\n"
+        f"  [bold]{fact.entity}[/].[cyan]{fact.attribute}[/]: {fact.value} "
+        f"[{color}](conf={fact.confidence:.2f})[/]"
+    )
+
+
 # ─── mnemo add ────────────────────────────────────────────────────────────────
 
 
@@ -688,18 +827,20 @@ def cmd_migrate(
 @click.option("--fact", "-f", "fact_text", required=True, help="Free-text fact to store")
 @AGENT_OPTION
 @DIR_OPTION
-@click.option("--entity", default="user", show_default=True, help="Entity this fact is about")
-@click.option("--attribute", default="memory", show_default=True, help="Attribute/category")
+@click.option("--entity", "-e", default=None, help="Entity this fact is about (default: agent name)")
+@click.option("--attribute", default="note", show_default=True, help="Attribute/category")
 @click.option("--confidence", "-c", default=1.0, type=float, show_default=True)
 @click.option("--source", default="manual", type=click.Choice(["chat", "tool", "manual", "import"]))
+@click.option("--tag", "-t", "tags", multiple=True, help="Tag(s) for this fact (repeatable: --tag decision --tag auth)")
 def cmd_add(
     fact_text: str,
     agent: str | None,
     mnemo_dir: Path | None,
-    entity: str,
+    entity: str | None,
     attribute: str,
     confidence: float,
     source: str,
+    tags: tuple[str, ...],
 ) -> None:
     """Add a fact to an agent's memory store."""
     base = _resolve_base(mnemo_dir)
@@ -713,11 +854,12 @@ def cmd_add(
         dump = AgentDump(agent=ag)
 
     fact = Fact(
-        entity=entity,
+        entity=entity or ag,
         attribute=attribute,
         value=fact_text,
         source=source,  # type: ignore[arg-type]
         confidence=confidence,
+        metadata={"tags": list(tags)} if tags else {},
     )
     dump.facts.append(fact)
     save_dump(dump, latest)

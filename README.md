@@ -25,23 +25,29 @@ Inspired by Mnemosyne (Greek goddess of memory), **mnemo** is a portable CLI for
 
 ```bash
 # Install
-cd mnemo-agent
-pip install -e .          # core (local only)
-pip install -e ".[all]"   # everything (mem0 + letta + parquet + graph)
+pip install mnemo-agent            # core (local only)
+pip install "mnemo-agent[all]"     # everything (mem0 + letta + parquet + graph)
 
 # Initialize Joshua's job-prep agent
 mnemo init --agent job-prep
 
-# Add facts manually
+# Add facts manually (entity defaults to agent name, --tag is repeatable)
 mnemo add --fact "Joshua uses React, Node, Supabase, Vercel" --agent job-prep
 mnemo add --fact "Joshua is based in Toronto" --agent job-prep --confidence 1.0
+mnemo add --fact "Chose Supabase over Firebase for auth" --agent job-prep --attribute decision --tag decision --tag auth
 
-# View stored memories (by agent name or by file path)
+# View stored memories — plain format shows IDs for retract/edit
 mnemo show --agent job-prep
+mnemo show --agent job-prep --format plain
 
-# Recall using natural language
+# Recall using natural language, optionally filtered by tag
 mnemo recall "tech stack" --agent job-prep
+mnemo recall "auth" --agent job-prep --tag decision
 mnemo search "Supabase database" --agent job-prep --limit 5
+
+# Edit or remove facts by ID (use 'show --format plain' to find IDs)
+mnemo retract a1b2c3d4 --agent job-prep
+mnemo edit a1b2c3d4 --value "Updated wording" --agent job-prep
 
 # List all agents
 mnemo ls --pretty
@@ -67,14 +73,16 @@ mnemo serve --agent job-prep --port 8080
 | Command | Description |
 |---|---|
 | `mnemo init --agent <name>` | Initialize agent directory + config |
-| `mnemo add --fact "text" --agent <name>` | Add a memory fact |
+| `mnemo add --fact "text" --agent <name>` | Add a memory fact (`--entity`, `--attribute`, `--tag` supported) |
 | `mnemo dump --agent <name> [--source mem0\|letta]` | Dump memories to JSON |
 | `mnemo load --file dump.json --agent <name>` | Load dump into local/Mem0/Letta |
 | `mnemo ls [--agent all]` | List agents and fact counts |
-| `mnemo show --agent <name>` | Display agent's latest memories (or `--dump <file>`) |
+| `mnemo show --agent <name>` | Display agent's latest memories (`--format pretty\|json\|plain`) |
 | `mnemo diff --agent-a <a> --agent-b <b>` | Diff two agents (or `diff a.json b.json`) |
-| `mnemo recall "query"` | TF-IDF search across all agents |
-| `mnemo search "query" [--limit 10]` | Search with higher limit |
+| `mnemo recall "query" [--tag <tag>]` | TF-IDF search across all agents, optional tag filter |
+| `mnemo search "query" [--limit 10] [--tag <tag>]` | Alias for recall with higher default limit |
+| `mnemo retract <fact-id> --agent <name>` | Remove a fact by ID or 8-char prefix |
+| `mnemo edit <fact-id> --agent <name>` | Edit value/attribute/confidence of an existing fact |
 | `mnemo migrate --dump f.json --target mem0 --agent name` | Migrate between providers |
 | `mnemo serve --agent <name> [--port 8080] [--read-only]` | MCP FastAPI server |
 
@@ -225,7 +233,7 @@ notes: Memory store for interview prep agent
 ## Tests
 
 ```bash
-pip install -e ".[dev]"
+pip install "mnemo-agent[dev]"
 pytest tests/ -v
 ```
 
@@ -253,7 +261,7 @@ mnemo serve --agent job-prep --port 8080
 
 # After a practice interview, add what you learned
 mnemo add --fact "Lead with Supabase migration story at FAANG interviews" \
-  --agent job-prep --attribute interview_tip --confidence 0.9
+  --agent job-prep --attribute interview_tip --confidence 0.9 --tag tip
 
 # Before next session, recall relevant context
 mnemo recall "React Supabase full-stack" --agent job-prep

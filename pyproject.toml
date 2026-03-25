@@ -3,19 +3,18 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mnemo"
+name = "mnemo-agent"
 version = "0.1.0"
 description = "Local-first agent memory CLI — dump, diff, migrate & query across Mem0, Letta, and more"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Joshua Ndala" }]
 keywords = ["agent", "memory", "cli", "mem0", "letta", "mcp"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.12",
     "Topic :: Utilities",
 ]
@@ -36,6 +35,12 @@ parquet = ["pyarrow>=16.0", "pandas>=2.2"]
 graph = ["networkx>=3.3", "matplotlib>=3.9"]
 all = ["mnemo[mem0,letta,parquet,graph]"]
 dev = ["pytest>=8.2", "pytest-click>=1.1", "httpx>=0.27"]
+
+[project.urls]
+Homepage = "https://github.com/joshndala/mnemo-agent"
+Repository = "https://github.com/joshndala/mnemo-agent"
+"Bug Tracker" = "https://github.com/joshndala/mnemo-agent/issues"
+Changelog = "https://github.com/joshndala/mnemo-agent/CHANGELOG.md"
 
 [project.scripts]
 mnemo = "mnemo.cli:cli"
