@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from mnemo import __version__
 from mnemo.models import AgentDump, Fact
 from mnemo.search import search_dumps
 from mnemo.storage import (
@@ -44,7 +45,7 @@ def create_app(agent: str, base: Path, read_only: bool = False) -> FastAPI:
     app = FastAPI(
         title=f"mnemo MCP — {agent}",
         description="MCP-compatible memory server for mnemo agent memory.",
-        version="0.1.0",
+        version=__version__,
     )
 
     # Store config in app state

@@ -1,4 +1,10 @@
 """mnemo — local-first agent memory CLI."""
 
-__version__ = "0.1.0"
+from importlib.metadata import version, PackageNotFoundError
+
+try:
+    __version__ = version("mnemo-agent")
+except PackageNotFoundError:
+    __version__ = "unknown"
+
 __author__ = "Joshua Ndala"
