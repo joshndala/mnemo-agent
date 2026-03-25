@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemo-agent"
-version = "0.2.1"
+version = "0.2.2"
 description = "Local-first agent memory CLI — dump, diff, migrate & query across Mem0, Letta, and more"
 readme = "README.md"
 requires-python = ">=3.12"
