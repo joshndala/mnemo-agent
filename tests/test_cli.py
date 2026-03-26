@@ -126,6 +126,88 @@ class TestAdd:
         assert len(low) == 1
         assert low[0].confidence == pytest.approx(0.3)
 
+    def _add_fact(self, runner, agent, base, fact, entity="api", attribute="rate_limit"):
+        return runner.invoke(cli, [
+            "add", "--fact", fact,
+            "--entity", entity, "--attribute", attribute,
+            "--agent", agent, "--dir", str(base),
+        ])
+
+    def test_conflict_prompts_when_same_entity_attribute(self, runner, initialized_agent):
+        agent, base = initialized_agent
+        self._add_fact(runner, agent, base, "Rate limit is 100 req/min")
+        # Second add with same entity+attribute — choose keep both
+        result = self._add_fact(runner, agent, base, "Rate limit is 500 req/min")
+        result = runner.invoke(cli, [
+            "add", "--fact", "Rate limit is 500 req/min",
+            "--entity", "api", "--attribute", "rate_limit",
+            "--agent", agent, "--dir", str(base),
+        ], input="k\n")
+        assert result.exit_code == 0
+        assert "Conflict" in result.output
+
+    def test_conflict_overwrite_replaces_existing(self, runner, initialized_agent):
+        from mnemo.storage import latest_dump_path
+        agent, base = initialized_agent
+        self._add_fact(runner, agent, base, "Rate limit is 100 req/min")
+        runner.invoke(cli, [
+            "add", "--fact", "Rate limit is 500 req/min",
+            "--entity", "api", "--attribute", "rate_limit",
+            "--agent", agent, "--dir", str(base),
+        ], input="o\n")
+        dump = load_dump(latest_dump_path(agent, base))
+        rate_facts = [f for f in dump.facts if f.attribute == "rate_limit"]
+        assert len(rate_facts) == 1
+        assert rate_facts[0].value == "Rate limit is 500 req/min"
+
+    def test_conflict_keep_both_preserves_all(self, runner, initialized_agent):
+        from mnemo.storage import latest_dump_path
+        agent, base = initialized_agent
+        self._add_fact(runner, agent, base, "Rate limit is 100 req/min")
+        runner.invoke(cli, [
+            "add", "--fact", "Rate limit is 500 req/min",
+            "--entity", "api", "--attribute", "rate_limit",
+            "--agent", agent, "--dir", str(base),
+        ], input="k\n")
+        dump = load_dump(latest_dump_path(agent, base))
+        rate_facts = [f for f in dump.facts if f.attribute == "rate_limit"]
+        assert len(rate_facts) == 2
+
+    def test_conflict_abort_writes_nothing(self, runner, initialized_agent):
+        from mnemo.storage import latest_dump_path
+        agent, base = initialized_agent
+        self._add_fact(runner, agent, base, "Rate limit is 100 req/min")
+        runner.invoke(cli, [
+            "add", "--fact", "Rate limit is 500 req/min",
+            "--entity", "api", "--attribute", "rate_limit",
+            "--agent", agent, "--dir", str(base),
+        ], input="a\n")
+        dump = load_dump(latest_dump_path(agent, base))
+        rate_facts = [f for f in dump.facts if f.attribute == "rate_limit"]
+        assert len(rate_facts) == 1
+        assert rate_facts[0].value == "Rate limit is 100 req/min"
+
+    def test_conflict_force_skips_prompt(self, runner, initialized_agent):
+        from mnemo.storage import latest_dump_path
+        agent, base = initialized_agent
+        self._add_fact(runner, agent, base, "Rate limit is 100 req/min")
+        result = runner.invoke(cli, [
+            "add", "--fact", "Rate limit is 500 req/min",
+            "--entity", "api", "--attribute", "rate_limit",
+            "--force", "--agent", agent, "--dir", str(base),
+        ])
+        assert result.exit_code == 0
+        assert "Conflict" not in result.output
+        dump = load_dump(latest_dump_path(agent, base))
+        assert len([f for f in dump.facts if f.attribute == "rate_limit"]) == 2
+
+    def test_no_conflict_when_different_attribute(self, runner, initialized_agent):
+        agent, base = initialized_agent
+        self._add_fact(runner, agent, base, "Rate limit is 100 req/min", attribute="rate_limit")
+        result = self._add_fact(runner, agent, base, "Timeout is 30s", attribute="timeout")
+        assert result.exit_code == 0
+        assert "Conflict" not in result.output
+
 
 # ─── mnemo ls ─────────────────────────────────────────────────────────────────
 

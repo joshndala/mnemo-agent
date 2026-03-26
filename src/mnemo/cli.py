@@ -827,6 +827,7 @@ def cmd_edit(
 
 
 @cli.command("add")
+@click.option("--force", "force", is_flag=True, default=False, help="Skip conflict check and keep both facts (useful for scripts)")
 @click.option("--fact", "-f", "fact_text", required=True, help="Free-text fact to store")
 @AGENT_OPTION
 @DIR_OPTION
@@ -844,8 +845,13 @@ def cmd_add(
     confidence: float,
     source: str,
     tags: tuple[str, ...],
+    force: bool,
 ) -> None:
-    """Add a fact to an agent's memory store."""
+    """Add a fact to an agent's memory store.
+
+    If an existing fact shares the same entity+attribute, you will be prompted
+    to overwrite it, keep both, or abort. Use --force to always keep both (for scripts).
+    """
     base = _resolve_base(mnemo_dir)
     ag = _resolve_agent(agent)
     require_agent(ag, base)
@@ -856,8 +862,42 @@ def cmd_add(
     except FileNotFoundError:
         dump = AgentDump(agent=ag)
 
+    resolved_entity = entity or ag
+
+    # ── Conflict detection ────────────────────────────────────────────────────
+    if not force:
+        conflicts = [
+            f for f in dump.facts
+            if f.entity.lower() == resolved_entity.lower()
+            and f.attribute.lower() == attribute.lower()
+        ]
+        if conflicts:
+            console.print(
+                f"\n[yellow]⚠  Conflict[/] — {len(conflicts)} existing fact(s) for "
+                f"[bold]{resolved_entity}[/].[cyan]{attribute}[/]:\n"
+            )
+            for c in conflicts:
+                color = _conf_color(c.confidence)
+                console.print(
+                    f"  [dim]{c.id[:8]}[/]  {c.value}  "
+                    f"[{color}](conf={c.confidence:.2f}, {c.timestamp.strftime('%Y-%m-%d')})[/]"
+                )
+            console.print()
+            choice = click.prompt(
+                "  Choice",
+                type=click.Choice(["o", "k", "a"], case_sensitive=False),
+                default="k",
+                prompt_suffix=" — [o] overwrite  [k] keep both  [a] abort: ",
+            )
+            if choice == "a":
+                console.print("[dim]Aborted.[/]")
+                return
+            if choice == "o":
+                conflict_ids = {c.id for c in conflicts}
+                dump.facts = [f for f in dump.facts if f.id not in conflict_ids]
+
     fact = Fact(
-        entity=entity or ag,
+        entity=resolved_entity,
         attribute=attribute,
         value=fact_text,
         source=source,  # type: ignore[arg-type]
@@ -881,12 +921,51 @@ def cmd_add(
 @click.option("--agent", "-a", required=True)
 @click.option("--port", "-p", default=8080, show_default=True)
 @click.option("--read-only", is_flag=True, help="Disable write endpoints")
+@click.option(
+    "--stdio",
+    "use_stdio",
+    is_flag=True,
+    help="Run in stdio mode (for Claude Desktop / Cursor MCP integration)",
+)
 @DIR_OPTION
-def cmd_serve(agent: str, port: int, read_only: bool, mnemo_dir: Path | None) -> None:
-    """Start the MCP-compatible FastAPI server for an agent."""
+def cmd_serve(agent: str, port: int, read_only: bool, use_stdio: bool, mnemo_dir: Path | None) -> None:
+    """Start the MCP server for an agent.
+
+    \b
+    HTTP mode (default) — REST + JSON-RPC 2.0 at POST /:
+      mnemo serve --agent job-prep --port 8080
+
+    \b
+    stdio mode — for Claude Desktop / Cursor integration:
+      mnemo serve --agent job-prep --stdio
+
+    \b
+    Claude Desktop config (~/.claude/claude_desktop_config.json):
+      {
+        "mcpServers": {
+          "mnemo-job-prep": {
+            "command": "mnemo",
+            "args": ["serve", "--agent", "job-prep", "--stdio"]
+          }
+        }
+      }
+    """
     base = _resolve_base(mnemo_dir)
     require_agent(agent, base)
 
+    if use_stdio:
+        # stdio transport — used by Claude Desktop, Cursor, etc.
+        # Print nothing to stdout (it's the JSON-RPC channel); use stderr for status.
+        import sys
+        print(
+            f"mnemo MCP stdio — agent={agent} read_only={read_only}",
+            file=sys.stderr,
+        )
+        from mnemo.stdio_server import run_stdio
+        run_stdio(agent=agent, base=base, read_only=read_only)
+        return
+
+    # HTTP transport
     try:
         import uvicorn  # type: ignore
     except ImportError:
@@ -896,13 +975,29 @@ def cmd_serve(agent: str, port: int, read_only: bool, mnemo_dir: Path | None) ->
 
     app = create_app(agent=agent, base=base, read_only=read_only)
 
+    import json as _json
+    desktop_cfg = _json.dumps(
+        {
+            "mcpServers": {
+                f"mnemo-{agent}": {
+                    "command": "mnemo",
+                    "args": ["serve", "--agent", agent, "--stdio"],
+                }
+            }
+        },
+        indent=2,
+    )
+
     console.print(
         Panel.fit(
             f"[bold cyan]Agent:[/]     {agent}\n"
             f"[bold cyan]Port:[/]      {port}\n"
             f"[bold cyan]Read-only:[/] {read_only}\n\n"
-            f"[dim]MCP tools:  http://localhost:{port}/mcp/list_tools[/]\n"
-            f"[dim]Docs:       http://localhost:{port}/docs[/]",
+            f"[dim]JSON-RPC 2.0:  POST http://localhost:{port}/[/]\n"
+            f"[dim]Tools list:    GET  http://localhost:{port}/mcp/list_tools[/]\n"
+            f"[dim]Docs:          http://localhost:{port}/docs[/]\n\n"
+            f"[bold]Claude Desktop config[/] [dim](~/.claude/claude_desktop_config.json)[/]:\n"
+            f"[dim]{desktop_cfg}[/]",
             title="🌐 mnemo serve",
             border_style="green",
         )
