@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 
 ---
 
+## [0.3.1] — 2026-03-27
+
+### Fixed
+- README and CHANGELOG updated to reflect 0.3.0 features (MCP stdio, conflict detection, new tools)
+
+---
+
 ## [0.3.0] — 2026-03-26
 
 ### Added
@@ -88,6 +95,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 
 ---
 
+[0.3.1]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.3.1
 [0.3.0]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.3.0
 [0.2.0]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.2.0
 [0.1.0]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.1.0

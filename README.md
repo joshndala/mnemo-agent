@@ -16,7 +16,7 @@ Inspired by Mnemosyne (Greek goddess of memory), **mnemo** is a portable CLI for
 - **TF-IDF search** — `mnemo recall "query"` with zero external ML deps, filterable by `--tag`
 - **Rich tables** — confidence color-coded (🟢 ≥0.8, 🟡 ≥0.5, 🔴 <0.5)
 - **HTML + graph diffs** — visual diff between dump snapshots
-- **MCP server** — FastAPI `/mcp/list_tools` + `/mcp/call_tool` for Ollama/Claude Code agents
+- **MCP server** — JSON-RPC 2.0 + stdio transport; plug directly into Claude Desktop, Cursor, or any MCP client
 - **Push/pull sync** — S3, Cloudflare R2, or local filesystem remote; timestamp-based merge
 - **Safe writes** — `--dry-run` on load, pull, and migrate
 
@@ -64,8 +64,10 @@ mnemo load --file tests/fixtures/job_prep_sample.json --agent job-prep
 mnemo diff --agent-a job-prep --agent-b job-prep-v2
 mnemo diff dump1.json dump2.json --html diff_report.html
 
-# Start the MCP server (for Ollama / Claude Code agents)
+# Start the MCP server — HTTP mode
 mnemo serve --agent job-prep --port 8080
+# Or stdio mode (Claude Desktop / Cursor — no port needed)
+mnemo serve --agent job-prep --stdio
 
 # Sync to S3 (prompts for credentials on first add)
 mnemo remote add origin s3://my-bucket/mnemo --agent job-prep
@@ -91,7 +93,7 @@ mnemo pull --agent job-prep   # merges remote facts into local
 | `mnemo retract <fact-id> --agent <name>` | Remove a fact by ID or 8-char prefix |
 | `mnemo edit <fact-id> --agent <name>` | Edit value/attribute/confidence of an existing fact |
 | `mnemo migrate --dump f.json --target mem0 --agent name` | Migrate between providers |
-| `mnemo serve --agent <name> [--port 8080] [--read-only]` | MCP FastAPI server |
+| `mnemo serve --agent <name> [--port 8080] [--stdio] [--read-only]` | MCP server — HTTP (JSON-RPC 2.0) or stdio for Claude Desktop / Cursor |
 | `mnemo remote add <name> <url> --agent <name>` | Add a named remote (s3://, r2://, file://) |
 | `mnemo remote list --agent <name>` | List configured remotes |
 | `mnemo remote remove <name> --agent <name>` | Remove a remote |
@@ -111,13 +113,15 @@ mnemo-agent/
 │   ├── storage.py           # Local file I/O (JSON, YAML, credentials)
 │   ├── search.py            # TF-IDF search + diff engine
 │   ├── remotes.py           # Push/pull backends: FileBackend, S3Backend
-│   ├── server.py            # FastAPI MCP server
+│   ├── server.py            # FastAPI MCP server (HTTP + JSON-RPC 2.0)
+│   ├── stdio_server.py      # stdio MCP transport (Claude Desktop / Cursor)
 │   └── adapters/
 │       ├── mem0_adapter.py  # Mem0 API → normalized facts
 │       └── letta_adapter.py # Letta API → normalized facts
 ├── tests/
 │   ├── test_cli.py          # CLI command tests
 │   ├── test_remote.py       # Remote backends, merge, push/pull tests
+│   ├── test_server.py       # MCP server: JSON-RPC 2.0, tools, stdio transport
 │   └── fixtures/
 │       └── job_prep_sample.json
 ├── config.yaml              # Sample agent config
@@ -192,7 +196,28 @@ mnemo-agent/
 
 ---
 
-## 🔌 MCP Server (for Ollama / Claude Code)
+## 🔌 MCP Server
+
+mnemo implements the [MCP 2024-11-05 spec](https://spec.modelcontextprotocol.io) and supports two transports.
+
+### stdio — Claude Desktop / Cursor
+
+Add to `~/.claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "mnemo-job-prep": {
+      "command": "mnemo",
+      "args": ["serve", "--agent", "job-prep", "--stdio"]
+    }
+  }
+}
+```
+
+That's it — Claude Desktop will spawn mnemo as a subprocess and communicate over stdin/stdout.
+
+### HTTP — REST + JSON-RPC 2.0
 
 ```bash
 mnemo serve --agent job-prep --port 8080
@@ -200,20 +225,26 @@ mnemo serve --agent job-prep --port 8080
 
 | Endpoint | Description |
 |---|---|
-| `GET /mcp/list_tools` | List available tools (MCP schema) |
-| `POST /mcp/call_tool` | Call a tool by name with arguments |
-| `GET /facts` | REST: list all facts |
-| `GET /search?q=query` | REST: search memories |
+| `POST /` | JSON-RPC 2.0 — `initialize`, `tools/list`, `tools/call`, `ping` |
+| `GET /mcp/list_tools` | List available tools (legacy, kept for compatibility) |
+| `POST /mcp/call_tool` | Call a tool by name (legacy, kept for compatibility) |
+| `GET /facts` | REST: list all facts (`?entity=`, `?attribute=`, `?tag=`) |
+| `GET /search?q=query` | REST: search memories (`?tag=` filter supported) |
+| `GET /health` | Health check with version info |
 | `GET /docs` | Swagger UI |
 
 ### Available MCP tools
 
-```json
-{ "name": "search_memory",  "description": "TF-IDF search over agent memory" }
-{ "name": "list_facts",     "description": "Return all facts, optionally filtered" }
-{ "name": "upsert_fact",    "description": "Add a fact to agent memory" }
-{ "name": "get_agent_info", "description": "Agent metadata and fact count" }
-```
+| Tool | Description |
+|---|---|
+| `search_memory` | TF-IDF keyword search; supports `tag` filter |
+| `list_facts` | List all facts; filterable by `entity`, `attribute`, `tag`; shows IDs |
+| `upsert_fact` | Add a fact; supports `tags` array |
+| `retract_fact` | Remove a fact by ID or 8-char prefix |
+| `edit_fact` | Update a fact's `value`, `attribute`, or `confidence` |
+| `get_agent_info` | Agent name, fact count, last updated timestamp |
+
+`retract_fact` and `edit_fact` are disabled when `--read-only` is set.
 
 ---
 
@@ -253,20 +284,23 @@ Remote credentials (S3/R2 access keys) are stored separately in `~/.mnemo/creden
 ## Tests
 
 ```bash
-pip install "mnemo-agent[dev]"
+pip install "mnemo-agent[dev,s3]"
 pytest tests/ -v
 ```
+
+114 tests across `test_cli.py`, `test_remote.py`, and `test_server.py`.
 
 ---
 
 ## Roadmap
 
 - [x] Push/pull sync to S3, R2, and local filesystem remotes
+- [x] Write-time conflict detection with overwrite / keep-both / abort prompt
+- [x] Full MCP 2024-11-05 protocol — JSON-RPC 2.0 + stdio transport (Claude Desktop / Cursor)
 - [ ] Vector embeddings for semantic search (v2)
 - [ ] Parquet export for analytics
 - [ ] `mnemo audit` — fact provenance trace
 - [ ] Web UI dashboard
-- [ ] Native Ollama MCP client registration
 
 ---
 
@@ -277,12 +311,19 @@ pytest tests/ -v
 mnemo init --agent job-prep
 mnemo load --file tests/fixtures/job_prep_sample.json --agent job-prep
 
-# Ask your agent questions via MCP (Ollama / Claude Code reads from :8080)
+# Connect to Claude Desktop (add to claude_desktop_config.json, then restart)
+mnemo serve --agent job-prep --stdio
+
+# Or run as an HTTP server for other MCP clients
 mnemo serve --agent job-prep --port 8080
 
 # After a practice interview, add what you learned
 mnemo add --fact "Lead with Supabase migration story at FAANG interviews" \
   --agent job-prep --attribute interview_tip --confidence 0.9 --tag tip
+
+# If you added a conflicting fact by mistake, retract it by ID prefix
+mnemo show --agent job-prep --format plain   # see IDs
+mnemo retract a1b2c3d4 --agent job-prep
 
 # Before next session, recall relevant context
 mnemo recall "React Supabase full-stack" --agent job-prep
