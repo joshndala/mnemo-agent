@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mnemo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    *, *::before, *::after { font-family: 'JetBrains Mono', monospace; box-sizing: border-box; }
+    :root {
+      --v: #7c3aed; --vl: #a78bfa; --vd: rgba(124,58,237,.12); --vb: rgba(124,58,237,.28);
+      --g: #4ade80; --y: #facc15; --r: #f87171; --sky: #7dd3fc;
+      --bg: #0f0f0f; --sb: #141414; --card: #1a1a1a; --line: #2a2a2a; --dim: #1e1e1e;
+    }
+    html, body { height: 100%; overflow: hidden; background: var(--bg); color: #c8c8c8; }
+    body {
+      background-image:
+        linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
+    ::-webkit-scrollbar-thumb { background: #2a2a2a; }
+
+    /* ── field ── */
+    .f { width:100%; background:var(--card); border:1px solid var(--line); color:#e2e2e2; padding:7px 10px; font-size:12px; outline:none; transition:border-color .15s; }
+    .f:focus { border-color:var(--v); }
+    textarea.f { resize:vertical; min-height:72px; }
+    select.f option { background:var(--card); }
+    .fl { display:block; font-size:9px; text-transform:uppercase; letter-spacing:.12em; color:#444; margin-bottom:5px; }
+
+    /* ── btn ── */
+    .btn { font-size:11px; letter-spacing:.05em; cursor:pointer; border:none; padding:7px 14px; transition:background .15s,color .15s,border-color .15s; white-space:nowrap; }
+    .bv  { background:var(--v); color:#fff; }
+    .bv:hover { background:#6d28d9; }
+    .bo  { background:transparent; color:#555; border:1px solid var(--line); }
+    .bo:hover { color:#ccc; border-color:#444; }
+    .bd  { background:transparent; color:var(--r); border:1px solid rgba(248,113,113,.3); }
+    .bd:hover { background:rgba(248,113,113,.08); }
+
+    /* ── nav ── */
+    .nav { display:block; width:100%; text-align:left; padding:7px 14px; font-size:11px; cursor:pointer; border-left:2px solid transparent; transition:color .12s,border-color .12s,background .12s; color:#3a3a3a; }
+    .nav:hover { color:#777; }
+    .nav.on { color:var(--vl); border-left-color:var(--v); background:var(--vd); }
+
+    /* ── pill ── */
+    .pill { display:inline-flex; align-items:center; padding:1px 8px; font-size:10px; background:var(--vd); color:var(--vl); border:1px solid var(--vb); margin:1px 2px 1px 0; }
+
+    /* ── table ── */
+    .tbl th { font-size:9px; font-weight:500; text-transform:uppercase; letter-spacing:.12em; color:#333; padding:8px 12px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+    .tbl td { padding:9px 12px; font-size:11px; vertical-align:middle; }
+    .tbl tr { border-bottom:1px solid var(--dim); }
+    .tbl tbody tr { transition:background .1s; }
+    .tbl tbody tr:hover { background:rgba(255,255,255,.018); }
+    .tbl tbody tr.ret { background:rgba(248,113,113,.07) !important; }
+
+    /* ── cbar ── */
+    .cbar { height:2px; border-radius:1px; width:40px; margin-top:3px; }
+
+    /* ── panel ── */
+    .panel { position:fixed; top:0; right:0; bottom:0; width:320px; z-index:50; background:var(--sb); border-left:1px solid var(--line); display:flex; flex-direction:column; transform:translateX(100%); transition:transform .22s cubic-bezier(.4,0,.2,1); }
+    .panel.on { transform:translateX(0); }
+    .overlay { position:fixed; inset:0; z-index:40; background:rgba(0,0,0,.55); opacity:0; pointer-events:none; transition:opacity .22s; }
+    .overlay.on { opacity:1; pointer-events:auto; }
+
+    /* ── modal ── */
+    .modal-bg { position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.7); display:flex; align-items:center; justify-content:center; }
+    .modal { background:var(--sb); border:1px solid var(--line); padding:28px; width:340px; }
+
+    /* ── toast ── */
+    .toast { padding:10px 14px; font-size:11px; border:1px solid; display:flex; align-items:center; gap:8px; animation:tIn .18s ease-out; }
+    .tok { background:rgba(124,58,237,.15); border-color:rgba(124,58,237,.4); color:#c4b5fd; }
+    .terr { background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.35); color:#fca5a5; }
+    @keyframes tIn { from{transform:translateX(20px);opacity:0} to{transform:translateX(0);opacity:1} }
+
+    /* ── diff ── */
+    .da { border-left:2px solid var(--g); background:rgba(74,222,128,.04); }
+    .dr { border-left:2px solid var(--r); background:rgba(248,113,113,.04); }
+    .dc { border-left:2px solid var(--line); opacity:.4; }
+
+    /* ── agent card ── */
+    .acard { background:var(--card); border:1px solid var(--line); padding:20px; cursor:pointer; transition:border-color .15s,background .15s; }
+    .acard:hover { border-color:#3a3a3a; background:#1d1d1d; }
+
+    /* ── range ── */
+    input[type=range] { -webkit-appearance:none; appearance:none; width:100%; height:2px; background:var(--line); border:none; padding:0; cursor:pointer; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; background:var(--v); border-radius:50%; }
+    input[type=range]:focus { outline:none; }
+
+    /* ── chip filter ── */
+    .chip { font-size:10px; padding:3px 10px; border:1px solid var(--line); color:#555; cursor:pointer; transition:all .12s; background:transparent; }
+    .chip:hover { color:#aaa; border-color:#3a3a3a; }
+    .chip.on { border-color:var(--v); color:var(--vl); background:var(--vd); }
+  </style>
+</head>
+
+<body x-data="app()" x-init="boot()">
+
+  <!-- Toasts -->
+  <div class="fixed top-4 right-4 z-[70] flex flex-col gap-2" style="min-width:260px;max-width:340px">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="toast" :class="t.type==='err'?'terr':'tok'">
+        <span x-text="t.type==='err'?'✗':'✓'"></span><span x-text="t.msg"></span>
+      </div>
+    </template>
+  </div>
+
+  <!-- Create Agent Modal -->
+  <div class="modal-bg" x-show="createModal" style="display:none">
+    <div class="modal" @click.stop>
+      <div class="text-xs uppercase tracking-widest mb-5" style="color:var(--vl)">+ new agent</div>
+      <div class="mb-4">
+        <label class="fl">agent name</label>
+        <input class="f" type="text" x-model="newAgentName"
+               @keyup.enter="createAgent()"
+               placeholder="job-prep" />
+        <div class="mt-1 text-xs" style="color:#444">letters, numbers, hyphens, underscores only</div>
+      </div>
+      <div class="flex gap-2">
+        <button class="btn bv flex-1" @click="createAgent()">create</button>
+        <button class="btn bo" @click="createModal=false; newAgentName=''">cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Agent Modal -->
+  <div class="modal-bg" x-show="deleteModal" style="display:none">
+    <div class="modal" @click.stop>
+      <div class="text-xs uppercase tracking-widest mb-3" style="color:var(--r)">⚠ delete agent</div>
+      <p class="text-xs mb-5" style="color:#888">
+        Permanently delete <span class="font-semibold" style="color:#e2e2e2" x-text="deleteTarget"></span> and all its facts?
+        This cannot be undone.
+      </p>
+      <div class="flex gap-2">
+        <button class="btn bd flex-1" @click="confirmDelete()">yes, delete</button>
+        <button class="btn bo" @click="deleteModal=false; deleteTarget=''">cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Dump Modal -->
+  <div class="modal-bg" x-show="importModal" style="display:none">
+    <div class="modal" @click.stop>
+      <div class="text-xs uppercase tracking-widest mb-3" style="color:var(--vl)">↑ import dump</div>
+      <p class="text-xs mb-4" style="color:#555">
+        Upload a mnemo JSON dump. New facts (by ID) will be merged in.
+      </p>
+      <div class="mb-4">
+        <label class="fl">dump file (.json)</label>
+        <input class="f" type="file" accept=".json" @change="importFile=$event.target.files[0]" style="cursor:pointer" />
+      </div>
+      <div class="flex gap-2">
+        <button class="btn bv flex-1" @click="doImport()">import</button>
+        <button class="btn bo" @click="importModal=false; importFile=null">cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel overlay -->
+  <div class="overlay" :class="panelOpen?'on':''" @click="closePanel()"></div>
+
+  <!-- Add / Edit Panel -->
+  <div class="panel" :class="panelOpen?'on':''">
+    <div class="px-5 py-4 border-b flex items-center justify-between" style="border-color:var(--line)">
+      <span class="text-xs uppercase tracking-widest" style="color:var(--vl)"
+            x-text="panelMode==='add'?'+ new fact':'~ edit fact'"></span>
+      <button @click="closePanel()" class="text-gray-600 hover:text-gray-400 text-xl leading-none">×</button>
+    </div>
+    <div class="flex-1 overflow-y-auto px-5 py-5 flex flex-col gap-5">
+      <div><label class="fl">entity</label><input class="f" type="text" x-model="form.entity" placeholder="Joshua" /></div>
+      <div><label class="fl">attribute</label><input class="f" type="text" x-model="form.attribute" placeholder="tech_stack" /></div>
+      <div><label class="fl">value</label><textarea class="f" x-model="form.value" placeholder="React, Node, Supabase…"></textarea></div>
+      <div>
+        <label class="fl">confidence — <span x-text="parseFloat(form.confidence).toFixed(2)" :style="`color:${cc(parseFloat(form.confidence))}`"></span></label>
+        <input type="range" min="0" max="1" step="0.01" x-model="form.confidence" />
+        <div class="cbar mt-2" :style="`background:${cc(parseFloat(form.confidence))}`"></div>
+      </div>
+      <div>
+        <label class="fl">source</label>
+        <select class="f" x-model="form.source">
+          <option value="manual">manual</option>
+          <option value="chat">chat</option>
+          <option value="tool">tool</option>
+        </select>
+      </div>
+      <div><label class="fl">tags — comma separated</label><input class="f" type="text" x-model="form.tags" placeholder="decision, auth" /></div>
+    </div>
+    <div class="px-5 py-4 border-t flex gap-2" style="border-color:var(--line)">
+      <button class="btn bv flex-1" @click="submitPanel()" x-text="panelMode==='add'?'add fact':'save changes'"></button>
+      <button class="btn bo" @click="closePanel()">cancel</button>
+    </div>
+  </div>
+
+  <!-- ══ LAYOUT ══════════════════════════════════════════════════════════ -->
+  <div class="flex h-screen overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside class="flex-none flex flex-col border-r overflow-hidden" style="width:200px;background:var(--sb);border-color:var(--line)">
+
+      <!-- Logo -->
+      <div class="px-4 pt-5 pb-4 border-b" style="border-color:var(--line)">
+        <div class="font-bold text-sm" style="color:#e2e2e2;letter-spacing:.04em">🧠 mnemo</div>
+        <div class="text-xs mt-1" style="color:#333" x-text="version"></div>
+      </div>
+
+      <!-- Nav -->
+      <nav class="px-2 pt-3 flex flex-col gap-0.5">
+        <button class="nav" :class="route==='/'?'on':''" @click="goHome()">≡ all agents</button>
+        <template x-if="agentName">
+          <button class="nav" :class="route.startsWith('/agent/')&&view==='facts'?'on':''"
+                  @click="view='facts'">≡ facts</button>
+        </template>
+        <template x-if="agentName">
+          <button class="nav" :class="route.startsWith('/agent/')&&view==='search'?'on':''"
+                  @click="view='search'">⌕ search</button>
+        </template>
+        <template x-if="agentName">
+          <button class="nav" :class="route.startsWith('/agent/')&&view==='diff'?'on':''"
+                  @click="view='diff'">± diff</button>
+        </template>
+      </nav>
+
+      <!-- Tag filter (agent detail only) -->
+      <template x-if="agentName && allTags.length > 0">
+        <div class="px-2 mt-3 overflow-y-auto flex-1">
+          <div class="px-3 pb-2" style="font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#2a2a2a">tags</div>
+          <button class="nav" :class="activeTag===null?'on':''" @click="activeTag=null;loadFacts()">all</button>
+          <template x-for="tag in allTags" :key="tag">
+            <button class="nav" :class="activeTag===tag?'on':''" @click="activeTag=tag;loadFacts()">
+              #<span x-text="tag"></span>
+            </button>
+          </template>
+        </div>
+      </template>
+      <div class="flex-1" x-show="!agentName || allTags.length===0"></div>
+
+      <!-- Footer -->
+      <div class="px-4 py-3 border-t" style="border-color:var(--dim)">
+        <div style="font-size:10px;color:#2a2a2a">
+          v<span x-text="version"></span>
+          <template x-if="readOnly">
+            <span class="ml-1 text-yellow-700">· read-only</span>
+          </template>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Top bar -->
+      <div class="flex-none flex items-center gap-3 px-5 py-3 border-b" style="background:var(--sb);border-color:var(--line)">
+
+        <!-- Breadcrumb -->
+        <div class="flex items-center gap-2 text-xs flex-none">
+          <button class="hover:text-gray-300 transition-colors" style="color:#444" @click="goHome()">agents</button>
+          <template x-if="agentName">
+            <span style="color:#2a2a2a">/</span>
+          </template>
+          <template x-if="agentName">
+            <span style="color:var(--vl)" x-text="agentName"></span>
+          </template>
+        </div>
+
+        <!-- Search (agent detail only) -->
+        <template x-if="agentName">
+          <div class="flex-1 relative">
+            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs pointer-events-none" style="color:#333">⌕</span>
+            <input class="f" style="padding-left:26px;background:var(--bg)" type="text"
+                   x-model="quickQ" @keyup.enter="quickSearch()" placeholder="quick search…" />
+          </div>
+        </template>
+        <div class="flex-1" x-show="!agentName"></div>
+
+        <!-- Actions -->
+        <template x-if="!agentName && !readOnly">
+          <button class="btn bv" @click="createModal=true">+ new agent</button>
+        </template>
+        <template x-if="agentName && !readOnly">
+          <div class="flex items-center gap-2">
+            <button class="btn bo" @click="importModal=true" title="Import dump">↑ import</button>
+            <a :href="`/agents/${agentName}/export`" class="btn bo" title="Export dump">↓ export</a>
+            <button class="btn bv" @click="openAdd()">+ add fact</button>
+          </div>
+        </template>
+        <template x-if="agentName && readOnly">
+          <a :href="`/agents/${agentName}/export`" class="btn bo">↓ export</a>
+        </template>
+      </div>
+
+      <!-- Content -->
+      <div class="flex-1 overflow-auto">
+
+        <!-- ── AGENT LIST ───────────────────────────────── -->
+        <div x-show="route==='/'">
+          <div x-show="agentsLoading" class="flex items-center justify-center py-16">
+            <span style="color:#333;font-size:11px">loading…</span>
+          </div>
+
+          <div x-show="!agentsLoading && agents.length===0" class="flex flex-col items-center justify-center py-20 gap-4">
+            <div style="color:#333;font-size:11px">no agents yet</div>
+            <template x-if="!readOnly">
+              <button class="btn bv" @click="createModal=true">+ create your first agent</button>
+            </template>
+          </div>
+
+          <div x-show="!agentsLoading && agents.length>0" class="p-5 grid gap-3" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">
+            <template x-for="a in agents" :key="a.name">
+              <div class="acard" @click="goAgent(a.name)">
+                <div class="flex items-start justify-between mb-3">
+                  <div class="font-semibold text-sm" style="color:#e2e2e2" x-text="a.name"></div>
+                  <template x-if="!readOnly">
+                    <button class="text-gray-700 hover:text-red-400 transition-colors text-xs ml-2 flex-none"
+                            @click.stop="deleteModal=true; deleteTarget=a.name"
+                            title="Delete agent">⌫</button>
+                  </template>
+                </div>
+                <div class="flex items-center gap-4 mb-3 text-xs" style="color:#444">
+                  <span><span x-text="a.fact_count" style="color:#888"></span> facts</span>
+                  <span><span x-text="a.dump_count" style="color:#888"></span> dumps</span>
+                </div>
+                <div x-show="a.last_updated" class="text-xs mb-3" style="color:#333">
+                  updated <span x-text="ago(a.last_updated)"></span>
+                </div>
+                <div x-show="a.tags.length > 0" class="flex flex-wrap">
+                  <template x-for="tag in a.tags.slice(0,4)" :key="tag">
+                    <span class="pill" x-text="tag"></span>
+                  </template>
+                  <span x-show="a.tags.length>4" class="pill" style="color:#555;border-color:#2a2a2a;background:transparent">
+                    +<span x-text="a.tags.length-4"></span>
+                  </span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- ── AGENT DETAIL: FACTS ──────────────────────── -->
+        <div x-show="route.startsWith('/agent/') && view==='facts'">
+
+          <!-- Filter chips -->
+          <div class="px-5 py-3 border-b flex items-center gap-2 flex-wrap" style="border-color:var(--dim)">
+            <span style="font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#333">filter</span>
+            <template x-for="e in entityOptions" :key="e">
+              <button class="chip" :class="entityFilter===e?'on':''" @click="entityFilter=entityFilter===e?'':e; loadFacts()"
+                      x-text="e"></button>
+            </template>
+            <template x-if="entityOptions.length>0 && attrOptions.length>0">
+              <span style="color:#2a2a2a">·</span>
+            </template>
+            <template x-for="a in attrOptions" :key="a">
+              <button class="chip" :class="attrFilter===a?'on':''" @click="attrFilter=attrFilter===a?'':a; loadFacts()"
+                      x-text="a"></button>
+            </template>
+            <button x-show="entityFilter||attrFilter||activeTag"
+                    class="chip" style="color:var(--r);border-color:rgba(248,113,113,.3)"
+                    @click="entityFilter='';attrFilter='';activeTag=null;loadFacts()">✗ clear</button>
+          </div>
+
+          <div x-show="loading" class="flex items-center justify-center py-16">
+            <span style="color:#333;font-size:11px">loading…</span>
+          </div>
+
+          <div x-show="!loading">
+            <table class="tbl w-full border-collapse">
+              <thead>
+                <tr>
+                  <th style="width:76px">id</th>
+                  <th style="width:120px">entity</th>
+                  <th style="width:120px">attribute</th>
+                  <th>value</th>
+                  <th style="width:64px">conf</th>
+                  <th style="width:160px">tags</th>
+                  <th style="width:66px">age</th>
+                  <th style="width:52px"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="f in facts" :key="f.id">
+                  <tr :class="retracting===f.id?'ret':''">
+                    <td style="color:#333;font-size:10px;font-weight:500" x-text="f.id.slice(0,8)"></td>
+                    <td style="color:var(--vl)" x-text="f.entity"></td>
+                    <td style="color:var(--sky)" x-text="f.attribute"></td>
+                    <td style="color:#e2e2e2;max-width:240px"><div class="truncate" :title="f.value" x-text="f.value"></div></td>
+                    <td>
+                      <span class="text-xs" :style="`color:${cc(f.confidence)}`" x-text="f.confidence.toFixed(2)"></span>
+                      <div class="cbar" :style="`background:${cc(f.confidence)}`"></div>
+                    </td>
+                    <td>
+                      <template x-for="tag in (f.metadata?.tags||[])" :key="tag">
+                        <span class="pill" x-text="tag"></span>
+                      </template>
+                    </td>
+                    <td style="color:#444;white-space:nowrap" x-text="ago(f.timestamp)"></td>
+                    <td>
+                      <div x-show="retracting!==f.id" class="flex items-center gap-3"
+                           style="opacity:0" @mouseenter="$el.style.opacity=1" @mouseleave="$el.style.opacity=0">
+                        <template x-if="!readOnly">
+                          <button @click="openEdit(f)" class="text-gray-700 hover:text-violet-400 transition-colors" style="font-size:13px" title="edit">✎</button>
+                        </template>
+                        <template x-if="!readOnly">
+                          <button @click="retracting=f.id" class="text-gray-700 hover:text-red-400 transition-colors" style="font-size:13px" title="retract">⌫</button>
+                        </template>
+                      </div>
+                      <div x-show="retracting===f.id" class="flex items-center gap-2">
+                        <button @click="doRetract(f.id)" class="text-red-400 hover:text-red-300 text-xs">✓</button>
+                        <button @click="retracting=null" class="text-gray-600 hover:text-gray-400 text-xs">✗</button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="facts.length===0&&!loading">
+                  <td colspan="8" class="text-center py-12" style="color:#2a2a2a;font-size:11px">no facts yet</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── AGENT DETAIL: SEARCH ────────────────────── -->
+        <div x-show="route.startsWith('/agent/') && view==='search'" class="p-5">
+          <div class="flex gap-2 mb-6">
+            <input class="f flex-1" type="text" x-model="searchQ" @keyup.enter="doSearch()" placeholder="search memories…" />
+            <button class="btn bv" @click="doSearch()">search</button>
+          </div>
+          <table x-show="searchResults.length>0" class="tbl w-full border-collapse">
+            <thead>
+              <tr>
+                <th style="width:72px">score</th>
+                <th style="width:120px">entity</th>
+                <th style="width:120px">attribute</th>
+                <th>value</th>
+                <th style="width:64px">conf</th>
+                <th style="width:160px">tags</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="r in searchResults" :key="r.id">
+                <tr>
+                  <td style="color:var(--v);font-size:10px" x-text="r.score.toFixed(4)"></td>
+                  <td style="color:var(--vl)" x-text="r.entity"></td>
+                  <td style="color:var(--sky)" x-text="r.attribute"></td>
+                  <td style="color:#e2e2e2;max-width:240px"><div class="truncate" :title="r.value" x-text="r.value"></div></td>
+                  <td>
+                    <span class="text-xs" :style="`color:${cc(r.confidence)}`" x-text="r.confidence.toFixed(2)"></span>
+                    <div class="cbar" :style="`background:${cc(r.confidence)}`"></div>
+                  </td>
+                  <td>
+                    <template x-for="tag in (r.metadata?.tags||[])" :key="tag">
+                      <span class="pill" x-text="tag"></span>
+                    </template>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div x-show="searchDone&&searchResults.length===0" class="text-center py-12" style="color:#333;font-size:11px">
+            no results for "<span x-text="searchQ"></span>"
+          </div>
+        </div>
+
+        <!-- ── AGENT DETAIL: DIFF ──────────────────────── -->
+        <div x-show="route.startsWith('/agent/') && view==='diff'" class="p-5">
+          <p class="text-xs mb-5" style="color:#444">
+            Upload a mnemo dump JSON to compare against <span style="color:#888" x-text="agentName"></span>'s current facts.
+            <span style="color:#333">Current = A, file = B.</span>
+          </p>
+          <div class="mb-6">
+            <label class="fl">upload dump file (B)</label>
+            <input class="f" type="file" accept=".json" @change="loadDiff($event)" style="cursor:pointer" />
+          </div>
+          <div x-show="diff">
+            <div class="flex gap-5 mb-5 text-xs">
+              <span :style="`color:var(--g)`">+<span x-text="diff?.added?.length"></span> added</span>
+              <span :style="`color:var(--r)`">-<span x-text="diff?.removed?.length"></span> removed</span>
+              <span style="color:#444"><span x-text="diff?.common?.length"></span> unchanged</span>
+            </div>
+            <template x-if="diff?.added?.length">
+              <div class="mb-4">
+                <div class="text-xs uppercase tracking-widest mb-2" style="color:var(--g);font-size:9px">added in B</div>
+                <template x-for="f in diff.added" :key="f.id">
+                  <div class="da px-3 py-2 mb-1 text-xs">
+                    <span style="color:var(--vl)" x-text="f.entity"></span>.<span style="color:var(--sky)" x-text="f.attribute"></span>: <span style="color:#e2e2e2" x-text="f.value"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <template x-if="diff?.removed?.length">
+              <div class="mb-4">
+                <div class="text-xs uppercase tracking-widest mb-2" style="color:var(--r);font-size:9px">removed from A</div>
+                <template x-for="f in diff.removed" :key="f.id">
+                  <div class="dr px-3 py-2 mb-1 text-xs">
+                    <span style="color:var(--vl)" x-text="f.entity"></span>.<span style="color:var(--sky)" x-text="f.attribute"></span>: <span style="color:#e2e2e2" x-text="f.value"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <template x-if="diff?.common?.length">
+              <div>
+                <div class="text-xs uppercase tracking-widest mb-2" style="color:#333;font-size:9px">unchanged</div>
+                <template x-for="f in diff.common" :key="f.id">
+                  <div class="dc px-3 py-2 mb-1 text-xs">
+                    <span style="color:var(--vl)" x-text="f.entity"></span>.<span style="color:var(--sky)" x-text="f.attribute"></span>: <span style="color:#888" x-text="f.value"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <script>
+  function app() {
+    return {
+      // global
+      version: '', readOnly: false,
+      toasts: [],
+
+      // routing
+      route: '/',
+      agentName: '',
+
+      // agent list
+      agents: [], agentsLoading: false,
+      createModal: false, newAgentName: '',
+      deleteModal: false, deleteTarget: '',
+
+      // agent detail
+      facts: [], allTags: [], entityOptions: [], attrOptions: [],
+      activeTag: null, entityFilter: '', attrFilter: '',
+      loading: false, view: 'facts',
+      quickQ: '',
+      searchQ: '', searchResults: [], searchDone: false,
+      diff: null,
+      retracting: null,
+      panelOpen: false, panelMode: 'add', editId: null,
+      form: { entity:'', attribute:'', value:'', confidence:1.0, source:'manual', tags:'' },
+
+      // import
+      importModal: false, importFile: null,
+
+      async boot() {
+        try {
+          const h = await fetch('/health').then(r => r.json());
+          this.version  = h.version || '';
+          this.readOnly = !!h.read_only;
+        } catch { this.toast('Cannot connect to mnemo server', 'err'); }
+
+        // hash routing
+        this._handleHash();
+        window.addEventListener('hashchange', () => this._handleHash());
+      },
+
+      _handleHash() {
+        const hash = window.location.hash.replace('#', '') || '/';
+        if (hash.startsWith('/agent/')) {
+          const name = hash.replace('/agent/', '').split('/')[0];
+          if (name) { this.route = `/agent/${name}`; this._openAgent(name); return; }
+        }
+        this.route = '/';
+        this.agentName = '';
+        this.loadAgents();
+      },
+
+      async loadAgents() {
+        this.agentsLoading = true;
+        try {
+          const d = await fetch('/agents').then(r => r.json());
+          this.agents = d.agents || [];
+        } catch { this.toast('Failed to load agents', 'err'); }
+        this.agentsLoading = false;
+      },
+
+      goHome() { window.location.hash = '#/'; },
+      goAgent(name) { window.location.hash = `#/agent/${name}`; },
+
+      async _openAgent(name) {
+        this.agentName = name;
+        this.view = 'facts';
+        this.activeTag = null; this.entityFilter = ''; this.attrFilter = '';
+        this.facts = []; this.allTags = []; this.entityOptions = []; this.attrOptions = [];
+        await this.loadFacts();
+      },
+
+      async loadFacts() {
+        this.loading = true;
+        try {
+          const p = new URLSearchParams();
+          if (this.activeTag)    p.set('tag', this.activeTag);
+          if (this.entityFilter) p.set('entity', this.entityFilter);
+          if (this.attrFilter)   p.set('attribute', this.attrFilter);
+          const d = await fetch(`/agents/${this.agentName}/facts?${p}`).then(r => r.json());
+          this.facts = d.facts || [];
+
+          // Rebuild filter options from unfiltered facts (load all for chip building)
+          const all = await fetch(`/agents/${this.agentName}/facts`).then(r => r.json());
+          const allFacts = all.facts || [];
+          const tags = new Set(), ents = new Set(), attrs = new Set();
+          allFacts.forEach(f => {
+            ents.add(f.entity); attrs.add(f.attribute);
+            (f.metadata?.tags || []).forEach(t => tags.add(t));
+          });
+          this.allTags = [...tags].sort();
+          this.entityOptions = [...ents].sort();
+          this.attrOptions   = [...attrs].sort();
+        } catch { this.toast('Failed to load facts', 'err'); }
+        this.loading = false;
+      },
+
+      async doSearch() {
+        if (!this.searchQ.trim()) return;
+        this.searchDone = false;
+        try {
+          const p = new URLSearchParams({ q: this.searchQ, limit: 20 });
+          if (this.activeTag) p.set('tag', this.activeTag);
+          const d = await fetch(`/agents/${this.agentName}/search?${p}`).then(r => r.json());
+          this.searchResults = d.results || [];
+          this.searchDone = true;
+        } catch { this.toast('Search failed', 'err'); }
+      },
+
+      quickSearch() {
+        if (!this.quickQ.trim()) return;
+        this.searchQ = this.quickQ;
+        this.view = 'search';
+        this.doSearch();
+      },
+
+      async loadDiff(e) {
+        const file = e.target.files[0]; if (!file) return;
+        try {
+          const b = JSON.parse(await file.text());
+          const fa = this.facts, fb = b.facts || [];
+          const ka = new Set(fa.map(f=>`${f.entity}|${f.attribute}|${f.value}`.toLowerCase()));
+          const kb = new Set(fb.map(f=>`${f.entity}|${f.attribute}|${f.value}`.toLowerCase()));
+          this.diff = {
+            added:   fb.filter(f=>!ka.has(`${f.entity}|${f.attribute}|${f.value}`.toLowerCase())),
+            removed: fa.filter(f=>!kb.has(`${f.entity}|${f.attribute}|${f.value}`.toLowerCase())),
+            common:  fa.filter(f=> kb.has(`${f.entity}|${f.attribute}|${f.value}`.toLowerCase())),
+          };
+        } catch { this.toast('Invalid dump file', 'err'); }
+      },
+
+      async createAgent() {
+        const name = this.newAgentName.trim();
+        if (!name) return;
+        try {
+          const r = await fetch('/agents', {
+            method: 'POST',
+            headers: {'content-type':'application/json'},
+            body: JSON.stringify({ name }),
+          });
+          if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+          this.toast(`Agent "${name}" created`);
+          this.createModal = false; this.newAgentName = '';
+          await this.loadAgents();
+        } catch (e) { this.toast(e.message || 'Create failed', 'err'); }
+      },
+
+      async confirmDelete() {
+        const name = this.deleteTarget;
+        try {
+          const r = await fetch(`/agents/${name}`, { method: 'DELETE' });
+          if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+          this.toast(`Agent "${name}" deleted`);
+          this.deleteModal = false; this.deleteTarget = '';
+          if (this.agentName === name) this.goHome();
+          else await this.loadAgents();
+        } catch (e) { this.toast(e.message || 'Delete failed', 'err'); }
+      },
+
+      async doImport() {
+        if (!this.importFile) return this.toast('Select a file first', 'err');
+        try {
+          const body = JSON.parse(await this.importFile.text());
+          const r = await fetch(`/agents/${this.agentName}/import`, {
+            method: 'POST',
+            headers: {'content-type':'application/json'},
+            body: JSON.stringify(body),
+          });
+          if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+          const d = await r.json();
+          this.toast(`Imported ${d.merged} new facts (${d.total} total)`);
+          this.importModal = false; this.importFile = null;
+          await this.loadFacts();
+        } catch (e) { this.toast(e.message || 'Import failed', 'err'); }
+      },
+
+      openAdd() {
+        this.panelMode='add'; this.editId=null;
+        this.form={entity:'',attribute:'',value:'',confidence:1.0,source:'manual',tags:''};
+        this.panelOpen=true;
+      },
+
+      openEdit(f) {
+        this.panelMode='edit'; this.editId=f.id;
+        this.form={entity:f.entity,attribute:f.attribute,value:f.value,
+                   confidence:f.confidence,source:f.source||'manual',
+                   tags:(f.metadata?.tags||[]).join(', ')};
+        this.panelOpen=true;
+      },
+
+      closePanel() { this.panelOpen=false; },
+
+      async submitPanel() {
+        const {entity,attribute,value,confidence,source,tags}=this.form;
+        if(!entity||!attribute||!value) return this.toast('entity, attribute, and value are required','err');
+        const tagList=tags.split(',').map(t=>t.trim()).filter(Boolean);
+        try {
+          if(this.panelMode==='add') {
+            await this.rpc('tools/call',{name:'upsert_fact',arguments:{entity,attribute,value,confidence:+confidence,source,tags:tagList}});
+            this.toast('Fact added');
+          } else {
+            await this.rpc('tools/call',{name:'edit_fact',arguments:{fact_id:this.editId,value,attribute,confidence:+confidence}});
+            this.toast('Fact updated');
+          }
+          this.closePanel();
+          await this.loadFacts();
+        } catch(e) { this.toast(e.message||'Error','err'); }
+      },
+
+      async doRetract(id) {
+        try {
+          await this.rpc('tools/call',{name:'retract_fact',arguments:{fact_id:id}});
+          this.toast('Fact retracted'); this.retracting=null;
+          await this.loadFacts();
+        } catch(e) { this.toast(e.message||'Retract failed','err'); this.retracting=null; }
+      },
+
+      async rpc(method, params={}) {
+        const r = await fetch(`/agents/${this.agentName}/rpc`,{
+          method:'POST', headers:{'content-type':'application/json'},
+          body:JSON.stringify({jsonrpc:'2.0',id:Date.now(),method,params}),
+        });
+        const d=await r.json();
+        if(d.error) throw new Error(d.error.message);
+        if(d.result?.isError) throw new Error(d.result.content?.[0]?.text||'Server error');
+        return d.result;
+      },
+
+      toast(msg,type='ok') {
+        const id=Date.now()+Math.random();
+        this.toasts.push({id,msg,type});
+        setTimeout(()=>{ this.toasts=this.toasts.filter(t=>t.id!==id); },3000);
+      },
+
+      cc(c) { return c>=0.8?'#4ade80':c>=0.5?'#facc15':'#f87171'; },
+
+      ago(ts) {
+        if(!ts) return '—';
+        const ms=Date.now()-new Date(ts).getTime();
+        const m=Math.floor(ms/60000),h=Math.floor(m/60),d=Math.floor(h/24);
+        if(d>0) return `${d}d`; if(h>0) return `${h}h`; if(m>0) return `${m}m`; return 'now';
+      },
+    };
+  }
+  </script>
+</body>
+</html>

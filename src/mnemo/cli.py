@@ -1006,6 +1006,60 @@ def cmd_serve(agent: str, port: int, read_only: bool, use_stdio: bool, mnemo_dir
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
 
 
+# ─── mnemo ui ─────────────────────────────────────────────────────────────────
+
+
+@cli.command("ui")
+@click.option("--agent", "-a", default=None, help="Open directly on this agent (optional)")
+@click.option("--port", "-p", default=7742, show_default=True)
+@click.option("--read-only", is_flag=True, help="Disable write operations in the UI")
+@DIR_OPTION
+def cmd_ui(agent: str | None, port: int, read_only: bool, mnemo_dir: Path | None) -> None:
+    """Open the mnemo web dashboard in your browser.
+
+    \b
+    Shows all agents by default. Pass --agent to jump straight to one.
+
+    \b
+    Examples:
+      mnemo ui
+      mnemo ui --agent job-prep
+      mnemo ui --port 8080 --read-only
+    """
+    base = _resolve_base(mnemo_dir)
+
+    try:
+        import uvicorn  # type: ignore
+    except ImportError:
+        raise click.ClickException("uvicorn not installed. Run: pip install uvicorn")
+
+    from mnemo.server import create_multi_app
+
+    app = create_multi_app(base=base, read_only=read_only)
+
+    # Deep-link to a specific agent if --agent is passed
+    fragment = f"#/agent/{agent}" if agent else "#/"
+    url = f"http://localhost:{port}/ui/{fragment}"
+
+    console.print(
+        Panel.fit(
+            f"[bold cyan]URL:[/]       {url}\n"
+            f"[bold cyan]Read-only:[/] {read_only}",
+            title="🖥  mnemo ui",
+            border_style="cyan",
+        )
+    )
+
+    import threading, webbrowser, time
+
+    def _open():
+        time.sleep(0.8)
+        webbrowser.open(url)
+
+    threading.Thread(target=_open, daemon=True).start()
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
+
+
 # ─── mnemo remote ─────────────────────────────────────────────────────────────
 
 

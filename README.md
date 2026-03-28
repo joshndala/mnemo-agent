@@ -10,13 +10,14 @@ Inspired by Mnemosyne (Greek goddess of memory), **mnemo** is a portable CLI for
 
 ## Features
 
-- **15 CLI commands** with rich `--help` and tab-completion
+- **16 CLI commands** with rich `--help` and tab-completion
 - **Normalized schema** — facts with `{entity, attribute, value, source, timestamp, confidence, metadata.tags}`
 - **Multi-provider** — local JSON, Mem0, Letta (stubs → real APIs with optional deps)
 - **TF-IDF search** — `mnemo recall "query"` with zero external ML deps, filterable by `--tag`
 - **Rich tables** — confidence color-coded (🟢 ≥0.8, 🟡 ≥0.5, 🔴 <0.5)
 - **HTML + graph diffs** — visual diff between dump snapshots
 - **MCP server** — JSON-RPC 2.0 + stdio transport; plug directly into Claude Desktop, Cursor, or any MCP client
+- **Web UI** — `mnemo ui` opens a local dashboard: browse all agents, add/edit/retract facts, import/export dumps
 - **Push/pull sync** — S3, Cloudflare R2, or local filesystem remote; timestamp-based merge
 - **Safe writes** — `--dry-run` on load, pull, and migrate
 
@@ -69,6 +70,11 @@ mnemo serve --agent job-prep --port 8080
 # Or stdio mode (Claude Desktop / Cursor — no port needed)
 mnemo serve --agent job-prep --stdio
 
+# Open the web dashboard (all agents, auto-opens browser)
+mnemo ui
+# Or jump straight to a specific agent
+mnemo ui --agent job-prep
+
 # Sync to S3 (prompts for credentials on first add)
 mnemo remote add origin s3://my-bucket/mnemo --agent job-prep
 mnemo push --agent job-prep
@@ -94,6 +100,7 @@ mnemo pull --agent job-prep   # merges remote facts into local
 | `mnemo edit <fact-id> --agent <name>` | Edit value/attribute/confidence of an existing fact |
 | `mnemo migrate --dump f.json --target mem0 --agent name` | Migrate between providers |
 | `mnemo serve --agent <name> [--port 8080] [--stdio] [--read-only]` | MCP server — HTTP (JSON-RPC 2.0) or stdio for Claude Desktop / Cursor |
+| `mnemo ui [--agent <name>] [--port 7742] [--read-only]` | Open web dashboard — all agents overview, per-agent facts/search/diff/import/export |
 | `mnemo remote add <name> <url> --agent <name>` | Add a named remote (s3://, r2://, file://) |
 | `mnemo remote list --agent <name>` | List configured remotes |
 | `mnemo remote remove <name> --agent <name>` | Remove a remote |
@@ -113,8 +120,10 @@ mnemo-agent/
 │   ├── storage.py           # Local file I/O (JSON, YAML, credentials)
 │   ├── search.py            # TF-IDF search + diff engine
 │   ├── remotes.py           # Push/pull backends: FileBackend, S3Backend
-│   ├── server.py            # FastAPI MCP server (HTTP + JSON-RPC 2.0)
+│   ├── server.py            # FastAPI MCP server (HTTP + JSON-RPC 2.0) + multi-agent UI server
 │   ├── stdio_server.py      # stdio MCP transport (Claude Desktop / Cursor)
+│   ├── static/
+│   │   └── ui.html          # Single-file web dashboard (Alpine.js + Tailwind CDN)
 │   └── adapters/
 │       ├── mem0_adapter.py  # Mem0 API → normalized facts
 │       └── letta_adapter.py # Letta API → normalized facts
@@ -248,6 +257,33 @@ mnemo serve --agent job-prep --port 8080
 
 ---
 
+## 🖥 Web Dashboard
+
+```bash
+mnemo ui                        # opens http://localhost:7742/ui
+mnemo ui --agent job-prep       # deep-links to that agent
+mnemo ui --port 8080 --read-only
+```
+
+`mnemo ui` requires `uvicorn` (`pip install uvicorn`). The browser opens automatically.
+
+### Agent list view
+- Cards for every agent — fact count, dump count, last updated, top tags
+- **Create** a new agent directly from the UI
+- **Delete** an agent (confirmation required)
+- Click any card to open the agent detail view
+
+### Agent detail view
+- **Facts table** — entity, attribute, value, confidence bar, tags, relative age
+- **Filter chips** — one-click entity/attribute filters above the table; tag filter in sidebar
+- **Add / Edit / Retract** facts with a slide-in panel
+- **Import** — upload a dump JSON, merges new facts by ID
+- **Export** — download the agent's latest dump as `<agent>-dump.json`
+- **Search** — TF-IDF results with relevance scores
+- **Diff** — upload a second dump file and see added/removed/unchanged facts side by side
+
+---
+
 ## ⚙️ Configuration
 
 Each agent has `~/.mnemo/<agent>/config.yaml`:
@@ -290,6 +326,8 @@ pytest tests/ -v
 
 114 tests across `test_cli.py`, `test_remote.py`, and `test_server.py`.
 
+The web UI (`mnemo ui`) is served by the same FastAPI process as `mnemo serve` and is covered by the existing server tests.
+
 ---
 
 ## Roadmap
@@ -297,10 +335,11 @@ pytest tests/ -v
 - [x] Push/pull sync to S3, R2, and local filesystem remotes
 - [x] Write-time conflict detection with overwrite / keep-both / abort prompt
 - [x] Full MCP 2024-11-05 protocol — JSON-RPC 2.0 + stdio transport (Claude Desktop / Cursor)
-- [ ] Vector embeddings for semantic search (v2)
+- [x] Web UI dashboard — multi-agent overview, per-agent facts/search/diff/import/export
+- [ ] Vector embeddings for semantic search
 - [ ] Parquet export for analytics
 - [ ] `mnemo audit` — fact provenance trace
-- [ ] Web UI dashboard
+- [ ] Snapshot history browser in UI
 
 ---
 

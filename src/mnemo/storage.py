@@ -158,6 +158,15 @@ def agent_exists(agent: str, base: Path = DEFAULT_MNEMO_DIR) -> bool:
     return agent_dir(agent, base).exists()
 
 
+def delete_agent(agent: str, base: Path = DEFAULT_MNEMO_DIR) -> None:
+    """Permanently delete an agent directory and all its data."""
+    import shutil
+    adir = agent_dir(agent, base)
+    if not adir.exists():
+        raise FileNotFoundError(f"Agent not found: {agent}")
+    shutil.rmtree(adir)
+
+
 def require_agent(agent: str, base: Path = DEFAULT_MNEMO_DIR) -> Path:
     adir = agent_dir(agent, base)
     if not adir.exists():

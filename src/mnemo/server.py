@@ -11,15 +11,21 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from mnemo import __version__
 from mnemo.models import AgentDump, Fact
 from mnemo.search import search_dumps
 from mnemo.storage import (
+    delete_agent,
+    dumps_dir,
+    init_agent,
     latest_dump_path,
+    list_agents,
+    list_dump_files,
     load_dump,
+    require_agent,
     save_dump,
 )
 
@@ -151,6 +157,14 @@ def create_app(agent: str, base: Path, read_only: bool = False) -> FastAPI:
         if read_only:
             return [t for t in TOOL_REGISTRY if t["name"] not in WRITE_TOOLS]
         return TOOL_REGISTRY
+
+    # ─── UI ───────────────────────────────────────────────────────────────
+
+    _ui_path = Path(__file__).parent / "static" / "ui.html"
+
+    @app.get("/ui")
+    def ui() -> FileResponse:
+        return FileResponse(_ui_path, media_type="text/html")
 
     # ─── Health ───────────────────────────────────────────────────────────
 
@@ -381,3 +395,172 @@ def _dispatch(tool_name: str, args: dict, agent: str, base: Path, read_only: boo
 
     else:
         raise ValueError(f"Unknown tool: {tool_name}")
+
+
+# ─── Multi-agent app factory ─────────────────────────────────────────────────
+
+
+def create_multi_app(base: Path, read_only: bool = False) -> FastAPI:
+    """Multi-agent FastAPI app — serves the dashboard UI and per-agent REST/RPC API."""
+    import json as _json
+    import re
+    from datetime import datetime, timezone
+    from fastapi import HTTPException
+    from fastapi.responses import RedirectResponse
+
+    app = FastAPI(title="mnemo dashboard", version=__version__)
+
+    _ui_path = Path(__file__).parent / "static" / "ui.html"
+
+    # ── UI & root ────────────────────────────────────────────────────────
+
+    @app.get("/")
+    def root() -> RedirectResponse:
+        return RedirectResponse("/ui")
+
+    @app.get("/ui")
+    def ui() -> FileResponse:
+        return FileResponse(_ui_path, media_type="text/html")
+
+    @app.get("/health")
+    def health() -> dict:
+        return {"status": "ok", "mode": "multi", "version": __version__, "read_only": read_only}
+
+    # ── Agent list & management ──────────────────────────────────────────
+
+    @app.get("/agents")
+    def agents_list() -> dict:
+        result = []
+        for name in list_agents(base):
+            try:
+                dump = load_dump(latest_dump_path(name, base))
+                tags: set[str] = set()
+                for f in dump.facts:
+                    for t in f.metadata.get("tags", []):
+                        tags.add(t)
+                result.append({
+                    "name": name,
+                    "fact_count": len(dump.facts),
+                    "last_updated": dump.dump_ts.isoformat(),
+                    "tags": sorted(tags),
+                    "dump_count": len(list_dump_files(name, base)),
+                })
+            except (FileNotFoundError, ValueError):
+                result.append({
+                    "name": name,
+                    "fact_count": 0,
+                    "last_updated": None,
+                    "tags": [],
+                    "dump_count": 0,
+                })
+        return {"agents": result}
+
+    @app.post("/agents")
+    async def agents_create(request: Request) -> dict:
+        if read_only:
+            raise HTTPException(403, "read-only mode")
+        body = await request.json()
+        name = (body.get("name") or "").strip()
+        if not name:
+            raise HTTPException(400, "name is required")
+        if not re.match(r"^[a-zA-Z0-9_-]+$", name):
+            raise HTTPException(400, "name may only contain letters, numbers, hyphens, underscores")
+        adir, is_new = init_agent(name, base=base)
+        return {"created": is_new, "name": name, "dir": str(adir)}
+
+    @app.delete("/agents/{agent}")
+    def agents_delete(agent: str) -> dict:
+        if read_only:
+            raise HTTPException(403, "read-only mode")
+        try:
+            delete_agent(agent, base)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Agent not found: {agent}")
+        return {"deleted": agent}
+
+    # ── Per-agent REST ───────────────────────────────────────────────────
+
+    @app.get("/agents/{agent}/facts")
+    def agent_facts(
+        agent: str,
+        entity: str | None = None,
+        attribute: str | None = None,
+        tag: str | None = None,
+    ) -> dict:
+        dump = _load_or_empty(agent, base)
+        facts = dump.facts
+        if entity:
+            facts = [f for f in facts if f.entity.lower() == entity.lower()]
+        if attribute:
+            facts = [f for f in facts if f.attribute.lower() == attribute.lower()]
+        if tag:
+            facts = [f for f in facts if tag.lower() in [t.lower() for t in f.metadata.get("tags", [])]]
+        return {"count": len(facts), "facts": [f.model_dump() for f in facts]}
+
+    @app.get("/agents/{agent}/search")
+    def agent_search(agent: str, q: str, limit: int = 10, tag: str | None = None) -> dict:
+        dump = _load_or_empty(agent, base)
+        results = search_dumps([dump], q, limit=limit)
+        if tag:
+            results = [r for r in results if tag.lower() in [t.lower() for t in r.fact.metadata.get("tags", [])]]
+        return {
+            "query": q,
+            "results": [{"score": r.score, **r.fact.model_dump()} for r in results],
+        }
+
+    @app.get("/agents/{agent}/export")
+    def agent_export(agent: str) -> FileResponse:
+        try:
+            path = latest_dump_path(agent, base)
+            if not path.exists():
+                raise FileNotFoundError
+            return FileResponse(path, media_type="application/json", filename=f"{agent}-dump.json")
+        except FileNotFoundError:
+            raise HTTPException(404, f"No dump found for agent: {agent}")
+
+    @app.post("/agents/{agent}/import")
+    async def agent_import(agent: str, request: Request) -> dict:
+        if read_only:
+            raise HTTPException(403, "read-only mode")
+        try:
+            body = await request.json()
+            incoming = AgentDump.model_validate(body)
+        except Exception as e:
+            raise HTTPException(400, f"Invalid dump: {e}")
+        try:
+            require_agent(agent, base)
+        except FileNotFoundError:
+            raise HTTPException(404, f"Agent not found: {agent}. Initialize it first.")
+        dest = latest_dump_path(agent, base)
+        try:
+            existing = load_dump(dest)
+            existing_ids = {f.id for f in existing.facts}
+            new_facts = [f for f in incoming.facts if f.id not in existing_ids]
+            existing.facts.extend(new_facts)
+            existing.dump_ts = datetime.now(timezone.utc)
+            save_dump(existing, dest)
+            return {"merged": len(new_facts), "total": len(existing.facts)}
+        except FileNotFoundError:
+            save_dump(incoming, dest)
+            return {"merged": len(incoming.facts), "total": len(incoming.facts)}
+
+    # ── Per-agent JSON-RPC 2.0 ───────────────────────────────────────────
+
+    @app.post("/agents/{agent}/rpc")
+    async def agent_jsonrpc(agent: str, request: Request) -> JSONResponse:
+        try:
+            body = await request.json()
+        except _json.JSONDecodeError as e:
+            return JSONResponse({
+                "jsonrpc": "2.0", "id": None,
+                "error": {"code": -32700, "message": f"Parse error: {e}"},
+            })
+
+        def active_tools() -> list[dict]:
+            if read_only:
+                return [t for t in TOOL_REGISTRY if t["name"] not in WRITE_TOOLS]
+            return TOOL_REGISTRY
+
+        return JSONResponse(_handle_jsonrpc(body, agent, base, read_only, active_tools))
+
+    return app

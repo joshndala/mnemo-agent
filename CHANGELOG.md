@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 
 ---
 
+## [0.4.0] — 2026-03-28
+
+### Added
+- **`mnemo ui`** — local web dashboard, opens automatically in the browser at `http://localhost:7742/ui`
+- **Multi-agent overview** — default view lists all agents as cards showing fact count, dump count, last updated, and top tags
+- **Create agent from UI** — modal with name validation (no CLI required)
+- **Delete agent from UI** — confirmation modal before permanently removing an agent and all its facts
+- **Per-agent detail view** — all facts in a table with entity, attribute, value, confidence bar, tag pills, relative age
+- **Entity/attribute filter chips** — one-click filters above the facts table, no typing required
+- **Tag filter** in sidebar (per-agent)
+- **Quick search** in top bar — jumps to search view with results inline
+- **Import dump** — upload a JSON dump file and merge new facts into the current agent (deduplicates by ID)
+- **Export dump** — one-click download of the agent's `latest.json` as `<agent>-dump.json`
+- **Add / Edit / Retract** facts from the UI — slide-in panel with confidence slider, source dropdown, tag input; inline retract confirmation
+- **Read-only mode** — `mnemo ui --read-only` hides all write actions
+- **Deep-link support** — `mnemo ui --agent job-prep` opens directly on that agent (`#/agent/job-prep`)
+- **Hash-based routing** — browser back button navigates between agent list and agent detail
+- Multi-agent REST API (`GET/POST /agents`, `DELETE /agents/<name>`, `GET /agents/<name>/facts`, `GET /agents/<name>/search`, `GET /agents/<name>/export`, `POST /agents/<name>/import`, `POST /agents/<name>/rpc`)
+- `delete_agent()` added to `storage.py`
+
+### Notes
+- `mnemo ui` does not require `--agent`; it discovers all agents automatically
+- `mnemo serve --agent <name>` is unchanged — still single-agent MCP server for Claude Desktop / Cursor
+- UI requires `uvicorn` (`pip install uvicorn` or `pip install mnemo-agent[serve]`)
+- Default port is 7742 (override with `--port`)
+
+---
+
 ## [0.3.1] — 2026-03-27
 
 ### Fixed
@@ -95,6 +123,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 
 ---
 
+[0.4.0]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.4.0
 [0.3.1]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.3.1
 [0.3.0]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.3.0
 [0.2.0]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.2.0
