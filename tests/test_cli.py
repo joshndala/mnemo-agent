@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -364,6 +367,20 @@ class TestSearchEngine:
         results = search_dumps([dump], "anything")
         assert results == []
 
+    def test_search_method_tfidf_unchanged(self):
+        """Regression: new search methods must not alter search_dumps output."""
+        dump = AgentDump(
+            agent="test",
+            facts=[
+                Fact(entity="Joshua", attribute="language", value="Python", confidence=1.0),
+                Fact(entity="Joshua", attribute="hobby", value="hiking", confidence=0.8),
+            ],
+        )
+        results = search_dumps([dump], "Python")
+        assert len(results) > 0
+        assert results[0].fact.attribute == "language"
+        assert isinstance(results[0].score, float)
+
 
 # ─── Unit: diff engine ────────────────────────────────────────────────────────
 
@@ -420,3 +437,78 @@ class TestModels:
         assert loaded.agent == "roundtrip"
         assert len(loaded.facts) == 1
         assert loaded.facts[0].confidence == pytest.approx(0.7)
+
+
+# ─── Unit: semantic / hybrid search ──────────────────────────────────────────
+
+_fastembed_available = importlib.util.find_spec("fastembed") is not None
+
+
+@pytest.mark.skipif(not _fastembed_available, reason="fastembed not installed — run: pip install 'mnemo[semantic]'")
+class TestSemanticSearch:
+    @pytest.fixture
+    def semantic_dump(self):
+        return AgentDump(
+            agent="test",
+            facts=[
+                Fact(entity="Joshua", attribute="preferred_stack", value="React, Node, Supabase", confidence=1.0),
+                Fact(entity="Joshua", attribute="hobby", value="hiking in the mountains", confidence=0.8),
+                Fact(entity="API", attribute="rate_limit", value="100 requests per minute", confidence=1.0),
+            ],
+        )
+
+    def test_semantic_returns_results(self, semantic_dump):
+        from mnemo.search import semantic_search_dumps
+        results = semantic_search_dumps([semantic_dump], "tech stack", limit=3)
+        assert len(results) > 0
+        assert results[0].score > 0
+
+    def test_semantic_ranks_correctly(self, semantic_dump):
+        from mnemo.search import semantic_search_dumps
+        results = semantic_search_dumps([semantic_dump], "outdoor activities", limit=3)
+        assert len(results) > 0
+        assert results[0].fact.attribute == "hobby"
+
+    def test_hybrid_scores_between_zero_and_one(self, semantic_dump):
+        from mnemo.search import hybrid_search_dumps
+        results = hybrid_search_dumps([semantic_dump], "tech stack", limit=3)
+        assert len(results) > 0
+        for r in results:
+            assert 0.0 <= r.score <= 1.0
+
+    def test_empty_dump_semantic(self):
+        from mnemo.search import semantic_search_dumps
+        results = semantic_search_dumps([AgentDump(agent="empty", facts=[])], "anything")
+        assert results == []
+
+    def test_cli_recall_semantic_flag(self, runner, initialized_agent, sample_dump):
+        agent, base = initialized_agent
+        runner.invoke(cli, ["load", "--file", str(sample_dump), "--agent", agent, "--dir", str(base)])
+        result = runner.invoke(
+            cli,
+            ["recall", "tech stack", "--method", "semantic", "--agent", agent, "--dir", str(base)],
+        )
+        assert result.exit_code == 0
+
+    def test_cli_recall_hybrid_flag(self, runner, initialized_agent, sample_dump):
+        agent, base = initialized_agent
+        runner.invoke(cli, ["load", "--file", str(sample_dump), "--agent", agent, "--dir", str(base)])
+        result = runner.invoke(
+            cli,
+            ["recall", "tech stack", "--method", "hybrid", "--agent", agent, "--dir", str(base)],
+        )
+        assert result.exit_code == 0
+
+
+class TestSemanticMissingDep:
+    """Tests that run regardless of whether fastembed is installed."""
+
+    def test_cli_semantic_without_install(self, runner, initialized_agent):
+        """When fastembed is absent, recall --method semantic exits non-zero with an install hint."""
+        agent, base = initialized_agent
+        with patch.dict(sys.modules, {"fastembed": None}):
+            result = runner.invoke(
+                cli,
+                ["recall", "tech stack", "--method", "semantic", "--agent", agent, "--dir", str(base)],
+            )
+        assert result.exit_code != 0

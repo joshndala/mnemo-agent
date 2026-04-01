@@ -35,13 +35,19 @@ from mnemo.storage import (
 TOOL_REGISTRY: list[dict[str, Any]] = [
     {
         "name": "search_memory",
-        "description": "Search agent memory using TF-IDF keyword matching.",
+        "description": "Search agent memory. Supports tfidf (default), semantic, and hybrid modes. Semantic and hybrid require mnemo[semantic].",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Search query"},
                 "limit": {"type": "integer", "default": 5, "description": "Max results to return"},
                 "tag": {"type": "string", "description": "Filter results to facts with this tag (optional)"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["tfidf", "semantic", "hybrid"],
+                    "default": "tfidf",
+                    "description": "Search mode. 'semantic' and 'hybrid' require mnemo[semantic] (fastembed).",
+                },
             },
             "required": ["query"],
         },
@@ -218,13 +224,24 @@ def create_app(agent: str, base: Path, read_only: bool = False) -> FastAPI:
         return {"count": len(facts), "facts": [f.model_dump() for f in facts]}
 
     @app.get("/search")
-    def search(q: str, limit: int = 5, tag: str | None = None) -> dict:
+    def search(q: str, limit: int = 5, tag: str | None = None, mode: str = "tfidf") -> dict:
         dump = _load_or_empty(agent, base)
-        results = search_dumps([dump], q, limit=limit)
+        try:
+            if mode == "semantic":
+                from mnemo.search import semantic_search_dumps
+                results = semantic_search_dumps([dump], q, limit=limit)
+            elif mode == "hybrid":
+                from mnemo.search import hybrid_search_dumps
+                results = hybrid_search_dumps([dump], q, limit=limit)
+            else:
+                results = search_dumps([dump], q, limit=limit)
+        except ImportError:
+            return JSONResponse({"error": "Semantic search requires: pip install 'mnemo[semantic]'"}, status_code=422)
         if tag:
             results = [r for r in results if tag.lower() in [t.lower() for t in r.fact.metadata.get("tags", [])]]
         return {
             "query": q,
+            "mode": mode,
             "results": [{"score": r.score, **r.fact.model_dump()} for r in results],
         }
 
@@ -306,7 +323,18 @@ def _dispatch(tool_name: str, args: dict, agent: str, base: Path, read_only: boo
         query = args.get("query", "")
         limit = int(args.get("limit", 5))
         tag_filter = args.get("tag")
-        results = search_dumps([dump], query, limit=limit)
+        mode = args.get("mode", "tfidf")
+        try:
+            if mode == "semantic":
+                from mnemo.search import semantic_search_dumps
+                results = semantic_search_dumps([dump], query, limit=limit)
+            elif mode == "hybrid":
+                from mnemo.search import hybrid_search_dumps
+                results = hybrid_search_dumps([dump], query, limit=limit)
+            else:
+                results = search_dumps([dump], query, limit=limit)
+        except ImportError:
+            return "Semantic search requires: pip install 'mnemo[semantic]'"
         if tag_filter:
             results = [r for r in results if tag_filter.lower() in [t.lower() for t in r.fact.metadata.get("tags", [])]]
         if not results:
@@ -498,13 +526,24 @@ def create_multi_app(base: Path, read_only: bool = False) -> FastAPI:
         return {"count": len(facts), "facts": [f.model_dump() for f in facts]}
 
     @app.get("/agents/{agent}/search")
-    def agent_search(agent: str, q: str, limit: int = 10, tag: str | None = None) -> dict:
+    def agent_search(agent: str, q: str, limit: int = 10, tag: str | None = None, mode: str = "tfidf") -> dict:
         dump = _load_or_empty(agent, base)
-        results = search_dumps([dump], q, limit=limit)
+        try:
+            if mode == "semantic":
+                from mnemo.search import semantic_search_dumps
+                results = semantic_search_dumps([dump], q, limit=limit)
+            elif mode == "hybrid":
+                from mnemo.search import hybrid_search_dumps
+                results = hybrid_search_dumps([dump], q, limit=limit)
+            else:
+                results = search_dumps([dump], q, limit=limit)
+        except ImportError:
+            return JSONResponse({"error": "Semantic search requires: pip install 'mnemo[semantic]'"}, status_code=422)
         if tag:
             results = [r for r in results if tag.lower() in [t.lower() for t in r.fact.metadata.get("tags", [])]]
         return {
             "query": q,
+            "mode": mode,
             "results": [{"score": r.score, **r.fact.model_dump()} for r in results],
         }
 

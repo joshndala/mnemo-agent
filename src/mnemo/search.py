@@ -76,6 +76,90 @@ def search_dumps(
     return idx.search(query, limit=limit)
 
 
+def semantic_search_dumps(
+    dumps: list[AgentDump], query: str, limit: int = 5
+) -> list[SearchResult]:
+    """Semantic search using fastembed cosine similarity.
+
+    Requires ``mnemo[semantic]`` (fastembed) to be installed.
+    All facts and the query are embedded in a single batch for efficiency.
+    """
+    from mnemo.embeddings import _require_fastembed, cosine_similarity, get_embeddings
+    _require_fastembed()  # eager dep check — raises ImportError if fastembed missing
+
+    pairs: list[tuple[str, Fact]] = [
+        (dump.agent, fact) for dump in dumps for fact in dump.facts
+    ]
+    if not pairs:
+        return []
+
+    texts = [fact.to_text() for _, fact in pairs]
+    all_vecs = get_embeddings(texts + [query])
+    query_vec = all_vecs[-1]
+    fact_vecs = all_vecs[:-1]
+
+    scored: list[tuple[float, str, Fact]] = [
+        (cosine_similarity(query_vec, vec), agent, fact)
+        for (agent, fact), vec in zip(pairs, fact_vecs)
+    ]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [SearchResult(fact=f, score=s, agent=ag) for s, ag, f in scored[:limit]]
+
+
+def hybrid_search_dumps(
+    dumps: list[AgentDump],
+    query: str,
+    limit: int = 5,
+    alpha: float = 0.7,
+) -> list[SearchResult]:
+    """Hybrid search combining semantic (cosine) and TF-IDF scores.
+
+    Both score domains are max-normalized to [0, 1] before combining:
+    ``combined = alpha * semantic + (1 - alpha) * tfidf``
+
+    Default alpha=0.7 weights semantic results more heavily. When TF-IDF
+    produces no term overlap the hybrid ranking degrades to pure semantic.
+
+    Requires ``mnemo[semantic]`` (fastembed) to be installed.
+    """
+    from mnemo.embeddings import _require_fastembed, cosine_similarity, get_embeddings
+    _require_fastembed()  # eager dep check — raises ImportError if fastembed missing
+
+    pairs: list[tuple[str, Fact]] = [
+        (dump.agent, fact) for dump in dumps for fact in dump.facts
+    ]
+    if not pairs:
+        return []
+
+    # --- semantic scores ---
+    texts = [fact.to_text() for _, fact in pairs]
+    all_vecs = get_embeddings(texts + [query])
+    query_vec = all_vecs[-1]
+    fact_vecs = all_vecs[:-1]
+    sem_scores = [max(0.0, cosine_similarity(query_vec, vec)) for vec in fact_vecs]
+
+    # --- tfidf scores ---
+    idx = FactIndex()
+    for dump in dumps:
+        idx.add_dump(dump)
+    tfidf_results = idx.search(query, limit=len(pairs))
+    tfidf_map: dict[str, float] = {r.fact.id: r.score for r in tfidf_results}
+    tfidf_scores = [tfidf_map.get(fact.id, 0.0) for _, fact in pairs]
+
+    # --- normalize both to [0, 1] ---
+    max_sem = max(sem_scores) if sem_scores else 1.0
+    max_tfidf = max(tfidf_scores) if tfidf_scores else 1.0
+    norm_sem = [s / max_sem if max_sem > 0 else 0.0 for s in sem_scores]
+    norm_tfidf = [s / max_tfidf if max_tfidf > 0 else 0.0 for s in tfidf_scores]
+
+    combined: list[tuple[float, str, Fact]] = [
+        (alpha * ns + (1 - alpha) * nt, agent, fact)
+        for (agent, fact), ns, nt in zip(pairs, norm_sem, norm_tfidf)
+    ]
+    combined.sort(key=lambda x: x[0], reverse=True)
+    return [SearchResult(fact=f, score=s, agent=ag) for s, ag, f in combined[:limit]]
+
+
 # ─── Diff helpers ─────────────────────────────────────────────────────────────
 
 

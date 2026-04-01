@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemo-agent"
-version = "0.4.0"
+version = "0.5.0"
 description = "Local-first agent memory CLI — dump, diff, migrate & query across Mem0, Letta, and more"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -34,8 +34,11 @@ letta = ["letta-client>=0.1"]
 parquet = ["pyarrow>=16.0", "pandas>=2.2"]
 graph = ["networkx>=3.3", "matplotlib>=3.9"]
 s3 = ["boto3>=1.34"]
-all = ["mnemo-agent[mem0,letta,parquet,graph,s3]"]
-dev = ["pytest>=8.2", "pytest-click>=1.1", "httpx>=0.27"]
+semantic = ["fastembed>=0.4"]
+ingest = ["anthropic>=0.30", "openai>=1.0"]
+sdk = ["httpx>=0.27"]
+all = ["mnemo-agent[mem0,letta,parquet,graph,s3,semantic,ingest,sdk]"]
+dev = ["pytest>=8.2", "pytest-click>=1.1", "httpx>=0.27", "pytest-asyncio>=0.24"]
 
 [project.urls]
 Homepage = "https://github.com/joshndala/mnemo-agent"

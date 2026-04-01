@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 
 ---
 
+## [0.5.0] — 2026-03-31
+
+### Added
+- **Semantic search** — `mnemo recall "query" --method semantic|hybrid` via fastembed (ONNX, no PyTorch); `mnemo[semantic]` optional extra
+  - `semantic` mode: cosine similarity using `BAAI/bge-small-en-v1.5` (384-dim, ~130MB on first use, cached)
+  - `hybrid` mode: `0.7 × semantic + 0.3 × tfidf`, both max-normalized to [0, 1]
+  - MCP `search_memory` tool: new `mode` param (`tfidf` | `semantic` | `hybrid`)
+  - REST `GET /search?mode=semantic|hybrid` and `GET /agents/{agent}/search?mode=...`
+  - Graceful `ImportError` if `fastembed` is not installed — suggests `pip install mnemo-agent[semantic]`
+- **`mnemo ingest`** — auto-extract facts from chat exports; `mnemo[ingest]` optional extra adds `anthropic` + `openai` SDKs
+  - Supported formats: Claude.ai JSON, ChatGPT `conversations.json`, Cursor, plain text (auto-detected)
+  - Extractors: `claude` (`claude-haiku-4-5`), `openai` (`gpt-4o-mini`), `ollama` (local), `heuristic` (regex, zero deps), `auto` (picks best from env)
+  - `--extractor-url` covers OpenAI-compatible providers: Groq, Gemini (`generativelanguage.googleapis.com/v1beta/openai/`), LMStudio
+  - Always shows a preview table + `[y/N]` prompt before writing; `--dry-run` skips the prompt
+  - `--entity` to override the default entity name; `--limit` to cap extracted facts
+  - New `"ingest"` value added to `Fact.source` Literal
+- **Python SDK** — programmatic access without shelling out; `mnemo[sdk]` optional extra adds `httpx`
+  - `MnemoClient(agent, *, base, url, timeout)` — sync client with local (direct file I/O) and remote (`mnemo serve` HTTP) backends
+  - `AsyncMnemoClient` — async wrapper; local via `asyncio.to_thread()`, remote via `httpx.AsyncClient`
+  - Methods: `add()`, `recall()`, `search()`, `list_facts()`, `get()`, `retract()`, `edit()`, `info()`, `dump()`
+  - `watch(poll_interval=0.5)` — async generator polling `latest.json` mtime; yields newly-seen facts by id (local only)
+  - Auto-init: first call creates the agent directory if it doesn't exist
+  - `MnemoClient`, `AsyncMnemoClient`, `Fact`, `AgentDump` now exported from `mnemo` top-level
+  - 41 new tests in `tests/test_client.py` (local, remote mocked, async, watch)
+
+### Notes
+- `mnemo[semantic]` model downloads ~130MB on first use to `~/.cache/fastembed/`; subsequent calls are instant
+- `mnemo ingest --extractor auto` checks `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → Ollama HTTP ping → heuristic
+- SDK remote mode (`url=`) requires `mnemo[sdk]`; local mode works with no extra deps
+
+---
+
 ## [0.4.0] — 2026-03-28
 
 ### Added
@@ -123,6 +155,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this
 
 ---
 
+[0.5.0]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.5.0
 [0.4.0]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.4.0
 [0.3.1]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.3.1
 [0.3.0]: https://github.com/joshndala/mnemo-agent/releases/tag/v0.3.0

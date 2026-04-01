@@ -14,6 +14,7 @@ from rich.table import Table
 from rich import box
 
 from mnemo import __version__
+from mnemo.adapters.ingest_adapter import extract_facts, parse_messages
 from mnemo.models import AgentDump, Fact
 from mnemo.search import diff_dumps, search_dumps
 from mnemo.storage import (
@@ -568,8 +569,19 @@ def _write_diff_graph(da: AgentDump, db: AgentDump, added: list, removed: list, 
 @DIR_OPTION
 @click.option("--limit", "-n", default=5, show_default=True, help="Max results")
 @click.option("--tag", "-t", "filter_tags", multiple=True, help="Filter results to facts with this tag (repeatable)")
-def cmd_recall(query: str, agent: str | None, mnemo_dir: Path | None, limit: int, filter_tags: tuple[str, ...]) -> None:
-    """Recall memories by natural-language query (TF-IDF)."""
+@click.option(
+    "--method", "-m", "search_method",
+    type=click.Choice(["tfidf", "semantic", "hybrid"], case_sensitive=False),
+    default="tfidf",
+    show_default=True,
+    help="Search algorithm: tfidf (default), semantic (fastembed), or hybrid.",
+)
+def cmd_recall(query: str, agent: str | None, mnemo_dir: Path | None, limit: int, filter_tags: tuple[str, ...], search_method: str) -> None:
+    """Recall memories by natural-language query.
+
+    Use --method to choose tfidf (default), semantic, or hybrid search.
+    Semantic and hybrid require: pip install 'mnemo[semantic]'
+    """
     base = _resolve_base(mnemo_dir)
     target_agents = [agent] if agent else list_agents(base)
 
@@ -585,7 +597,22 @@ def cmd_recall(query: str, agent: str | None, mnemo_dir: Path | None, limit: int
         except (FileNotFoundError, ValueError):
             pass
 
-    results = search_dumps(dumps, query, limit=limit)
+    if search_method == "semantic":
+        try:
+            from mnemo.search import semantic_search_dumps
+            results = semantic_search_dumps(dumps, query, limit=limit)
+        except ImportError as e:
+            err_console.print(f"[red]Semantic search requires: pip install 'mnemo[semantic]'[/]\n{e}")
+            raise SystemExit(1)
+    elif search_method == "hybrid":
+        try:
+            from mnemo.search import hybrid_search_dumps
+            results = hybrid_search_dumps(dumps, query, limit=limit)
+        except ImportError as e:
+            err_console.print(f"[red]Hybrid search requires: pip install 'mnemo[semantic]'[/]\n{e}")
+            raise SystemExit(1)
+    else:
+        results = search_dumps(dumps, query, limit=limit)
 
     if filter_tags:
         filter_set = {t.lower() for t in filter_tags}
@@ -598,8 +625,9 @@ def cmd_recall(query: str, agent: str | None, mnemo_dir: Path | None, limit: int
         console.print(f"[yellow]No matches found for:[/] {query}")
         return
 
+    method_label = f" [{search_method}]" if search_method != "tfidf" else ""
     table = Table(
-        title=f"🔍 recall: \"{query}\"",
+        title=f"🔍 recall: \"{query}\"{method_label}",
         box=box.ROUNDED,
         header_style="bold cyan",
         show_lines=True,
@@ -634,14 +662,156 @@ def cmd_recall(query: str, agent: str | None, mnemo_dir: Path | None, limit: int
 @DIR_OPTION
 @click.option("--limit", "-n", default=10, show_default=True)
 @click.option("--tag", "-t", "filter_tags", multiple=True, help="Filter results to facts with this tag (repeatable)")
-def cmd_search(query: str, agent: str | None, mnemo_dir: Path | None, limit: int, filter_tags: tuple[str, ...]) -> None:
+@click.option(
+    "--method", "-m", "search_method",
+    type=click.Choice(["tfidf", "semantic", "hybrid"], case_sensitive=False),
+    default="tfidf",
+    show_default=True,
+    help="Search algorithm: tfidf (default), semantic (fastembed), or hybrid.",
+)
+def cmd_search(query: str, agent: str | None, mnemo_dir: Path | None, limit: int, filter_tags: tuple[str, ...], search_method: str) -> None:
     """Search memories (alias for recall with a higher default limit of 10).
 
-    Both recall and search use TF-IDF keyword matching — recall defaults to 5 results,
-    search defaults to 10. Use whichever name feels natural.
+    Recall defaults to 5 results, search defaults to 10. Use whichever name feels natural.
+    Use --method to choose tfidf (default), semantic, or hybrid search.
     """
     ctx = click.get_current_context()
-    ctx.invoke(cmd_recall, query=query, agent=agent, mnemo_dir=mnemo_dir, limit=limit, filter_tags=filter_tags)
+    ctx.invoke(cmd_recall, query=query, agent=agent, mnemo_dir=mnemo_dir, limit=limit, filter_tags=filter_tags, search_method=search_method)
+
+
+# ─── mnemo ingest ─────────────────────────────────────────────────────────────
+
+
+@cli.command("ingest")
+@click.option("--file", "-f", "file_path", required=True, type=click.Path(exists=True, path_type=Path), help="Chat export file to ingest")
+@AGENT_OPTION
+@DIR_OPTION
+@click.option(
+    "--format", "file_format",
+    type=click.Choice(["auto", "claude", "chatgpt", "cursor", "plain"], case_sensitive=False),
+    default="auto", show_default=True,
+    help="Chat export format (auto-detects by default).",
+)
+@click.option(
+    "--extractor",
+    type=click.Choice(["auto", "claude", "openai", "ollama", "heuristic"], case_sensitive=False),
+    default="auto", show_default=True,
+    help="Extraction backend. auto picks best available (ANTHROPIC_API_KEY → OPENAI_API_KEY → Ollama → heuristic).",
+)
+@click.option("--extractor-model", "extractor_model", default=None, help="Override model (e.g. gpt-4o, llama3.2, gemini-1.5-flash)")
+@click.option("--extractor-url", "extractor_url", default=None, help="Override API base URL for OpenAI-compatible endpoints")
+@click.option("--entity", "-e", default=None, help="Entity to assign facts to (default: agent name)")
+@click.option("--limit", "-n", default=20, show_default=True, help="Max facts to extract")
+@click.option("--dry-run", is_flag=True, help="Preview extracted facts without saving")
+def cmd_ingest(
+    file_path: Path,
+    agent: str | None,
+    mnemo_dir: Path | None,
+    file_format: str,
+    extractor: str,
+    extractor_model: str | None,
+    extractor_url: str | None,
+    entity: str | None,
+    limit: int,
+    dry_run: bool,
+) -> None:
+    """Auto-extract facts from a chat export and add them to agent memory.
+
+    Supports Claude.ai, ChatGPT, Cursor, and plain text exports.
+    Extractor backends: claude (haiku), openai (gpt-4o-mini), ollama (local), heuristic (offline).
+    For OpenAI-compatible endpoints (Groq, Gemini, etc.) use --extractor openai --extractor-url <url>.
+    """
+    base = _resolve_base(mnemo_dir)
+    ag = _resolve_agent(agent)
+    require_agent(ag, base)
+
+    # 1. Parse chat file → list[str] user messages
+    try:
+        messages = parse_messages(file_path, file_format)
+    except ValueError as e:
+        err_console.print(f"[red]Could not parse {file_path.name}:[/] {e}")
+        raise SystemExit(1)
+
+    if not messages:
+        console.print(f"[yellow]No user messages found in {file_path.name}.[/]")
+        return
+
+    console.print(f"[dim]Parsed {len(messages)} user message(s) from {file_path.name}[/]")
+
+    # 2. Extract facts
+    resolved_entity = entity or ag
+    try:
+        raw_facts = extract_facts(
+            messages,
+            resolved_entity,
+            extractor=extractor,
+            limit=limit,
+            model=extractor_model,
+            base_url=extractor_url,
+        )
+    except ImportError as e:
+        err_console.print(f"[red]{e}[/]")
+        raise SystemExit(1)
+
+    if not raw_facts:
+        console.print("[yellow]No facts extracted.[/]")
+        return
+
+    # 3. Convert raw dicts → Fact objects
+    facts: list[Fact] = []
+    for raw in raw_facts:
+        if "value" not in raw:
+            continue
+        facts.append(Fact(
+            entity=str(raw.get("entity", resolved_entity)),
+            attribute=str(raw.get("attribute", "note")),
+            value=str(raw["value"]),
+            source="ingest",
+            confidence=float(raw.get("confidence", 0.8)),
+            metadata={"ingest_file": file_path.name},
+        ))
+
+    # 4. Preview table
+    table = Table(
+        title=f"Extracted {len(facts)} fact(s) from {file_path.name}",
+        box=box.ROUNDED,
+        header_style="bold cyan",
+        show_lines=True,
+    )
+    table.add_column("Entity")
+    table.add_column("Attribute", style="cyan")
+    table.add_column("Value")
+    table.add_column("Conf", justify="right", width=6)
+
+    for f in facts:
+        color = _conf_color(f.confidence)
+        table.add_row(
+            f.entity,
+            f.attribute,
+            f.value,
+            f"[{color}]{f.confidence:.2f}[/]",
+        )
+
+    console.print(table)
+
+    if dry_run:
+        console.print("[dim]--dry-run: no facts saved.[/]")
+        return
+
+    # 5. Confirm
+    if not click.confirm(f"Save these {len(facts)} fact(s) to agent '{ag}'?", default=False):
+        console.print("[yellow]Aborted.[/]")
+        return
+
+    # 6. Merge into dump
+    latest = latest_dump_path(ag, base)
+    try:
+        dump = load_dump(latest)
+    except FileNotFoundError:
+        dump = AgentDump(agent=ag)
+    dump.facts.extend(facts)
+    save_dump(dump, latest)
+    console.print(f"[green]✓[/] Saved {len(facts)} fact(s) to agent '{ag}'.")
 
 
 # ─── mnemo migrate ────────────────────────────────────────────────────────────

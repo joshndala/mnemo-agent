@@ -24,7 +24,7 @@ class Fact(BaseModel):
     entity: str = Field(..., description="The entity this fact is about (e.g. 'Joshua')")
     attribute: str = Field(..., description="The attribute/property (e.g. 'tech_stack')")
     value: str = Field(..., description="The value of the attribute")
-    source: Literal["chat", "tool", "manual", "mem0", "letta", "import"] = Field(
+    source: Literal["chat", "tool", "manual", "mem0", "letta", "import", "ingest"] = Field(
         default="manual", description="Origin of this fact"
     )
     timestamp: datetime = Field(
